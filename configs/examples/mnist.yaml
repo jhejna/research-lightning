@@ -1,0 +1,47 @@
+# Example Config for the MNIST Experiment
+# Note that these are not necesarily good hyperparameters, we are just demonstrating how to use
+# all the features of the repository
+
+alg: Classification
+
+optim: Adam
+optim_kwargs:
+  lr: 0.0005
+  betas: [0.9, 0.999]
+
+network: MLP
+network_kwargs:
+  hidden_layers: [256, 256]
+  act: ["import", "torch.nn", "Tanh"]
+
+batch_size: 64
+collate_fn: null
+checkpoint: null
+
+env: Empty
+env_kwargs: 
+  # Specify the IO shape
+  observation_shape: [1, 28, 28]
+  action_high: 10
+
+dataset: TorchVisionDataset
+dataset_kwargs:
+  dataset: MNIST
+  root: ../datasets/mnist
+  train: True
+  transform: 
+   - ["ToTensor", {}]
+   - ["Normalize", {"mean": [0.1307], "std": [0.3081]}]
+validation_dataset_kwargs:
+  train: False
+
+processor: Flatten
+
+train_kwargs:
+  total_steps: 10000
+  log_freq: 25
+  eval_freq: 500
+  max_eval_steps: 100
+  loss_metric: loss
+  workers: 2
+

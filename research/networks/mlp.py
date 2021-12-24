@@ -7,7 +7,10 @@ from gym import spaces
 from . common import MLP as mlp_extractor
 
 class MLP(nn.Module):
-
+    '''
+    A simple MLP classification network.
+    Assumes that the input has already been flattened.
+    '''
     def __init__(self, observation_space, action_space, hidden_layers=[256, 256], act=nn.ReLU):
         super().__init__()
         assert isinstance(observation_space, spaces.Box), "MLP supports box spaces."

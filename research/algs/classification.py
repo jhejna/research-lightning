@@ -5,7 +5,7 @@ from .base import Algorithm
 class Classification(Algorithm):
 
     def __init__(self, env, network_class, dataset_class, **kwargs):
-        super().__init__(env, network_class, dataset_class)
+        super().__init__(env, network_class, dataset_class, **kwargs)
         self.criterion = torch.nn.CrossEntropyLoss()
 
     def _compute_loss_and_accuracy(self, batch):
