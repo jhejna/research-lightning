@@ -1,2 +1,2 @@
-# Import processors here
+# Register Preprocessors here
 from .flatten import Flatten
