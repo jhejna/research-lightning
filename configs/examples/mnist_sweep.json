@@ -1,0 +1,9 @@
+{
+  "base": "configs/examples/mnist.yaml",
+  "paired_keys": [
+    ["batch_size", "optim_kwargs.lr"]
+  ],
+  "batch_size": [64, 128],
+  "optim_kwargs.lr": [0.001, 0.0001],
+  "network_kwargs.hidden_layers": [[128, 128], [256, 256]]
+}
