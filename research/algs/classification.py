@@ -15,7 +15,6 @@ class Classification(Algorithm):
         x, y = batch
         yhat = self.network(x)
         loss = self.criterion(yhat, y)
-        import pdb; pdb.set_trace()
         with torch.no_grad():
             accuracy = (torch.argmax(yhat, dim=-1) == y).sum() / y.shape[0]
         return loss, accuracy

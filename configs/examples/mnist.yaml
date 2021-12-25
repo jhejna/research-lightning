@@ -37,6 +37,10 @@ validation_dataset_kwargs:
 
 processor: Flatten
 
+schedule: linear_decay
+schdule_kwargs:
+  start_step: 5000
+
 train_kwargs:
   total_steps: 10000
   log_freq: 25
