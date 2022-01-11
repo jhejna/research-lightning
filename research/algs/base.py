@@ -137,6 +137,13 @@ class Algorithm(ABC):
     def steps(self):
         return self._steps
 
+    @property
+    def total_steps(self):
+        if hasattr(self, "_total_steps"):
+            return self._total_steps
+        else:
+            raise ValueError("alg.train has not been called, no total step count available.")
+
     def _format_batch(self, batch):
         # Convert items to tensor if they are not.
         if not utils.contains_tensors(batch):
@@ -182,6 +189,7 @@ class Algorithm(ABC):
 
         # Setup model metrics.
         self._steps = 0
+        self._total_steps = total_steps
         epochs = 0
         loss_lists = defaultdict(list)
         best_validation_metric = -1*float('inf') if loss_metric in MAX_VALID_METRICS else float('inf')
@@ -285,21 +293,23 @@ class Algorithm(ABC):
         '''
         return {}
 
-    def _predict(self, batch):
+    def _predict(self, batch, **kwargs):
         '''Internal prediction function, can be overridden'''
         if hasattr(self.network, "predict"):
             pred = self.network.predict(batch)
         else:
+            if len(kwargs) > 0:
+                raise ValueError("Default predict method does not accept key word args, but they were provided.")
             pred = self.network(batch)
         return pred
 
-    def predict(self, batch, is_batched=False):
+    def predict(self, batch, is_batched=False, **kwargs):
         is_np = not utils.contains_tensors(batch)
         if not is_batched:
             # Unsqeeuze everything
             batch = utils.unsqueeze(batch, 0)
         batch = self._format_batch(batch)
-        pred = self._predict(batch)
+        pred = self._predict(batch, **kwargs)
         if not is_batched:
             pred = utils.get_from_batch(pred, 0)
         if is_np:
