@@ -157,7 +157,7 @@ class Algorithm(ABC):
             batch = utils.to_device(batch)
         return batch
 
-    def train(self, path, total_steps, schedule=None, schedule_kwargs={}, log_freq=100, eval_freq=1000, max_eval_steps=-1, workers=4, loss_metric="loss", eval_ep=-1):
+    def train(self, path, total_steps, schedule=None, schedule_kwargs={}, log_freq=100, eval_freq=1000, max_eval_steps=-1, workers=4, loss_metric="loss", eval_ep=-1, profile_freq=-1):
         logger = Logger(path=path)
         print("[research] Model Directory:", path)
         print("[research] Training a model with", sum(p.numel() for p in self.network.parameters() if p.requires_grad), "trainable parameters.")
@@ -193,19 +193,40 @@ class Algorithm(ABC):
         epochs = 0
         loss_lists = defaultdict(list)
         best_validation_metric = -1*float('inf') if loss_metric in MAX_VALID_METRICS else float('inf')
-        start_time = time.time()
+        
+        # Setup profiling
+        start_time = current_time = time.time()
+        profiling_lists = defaultdict(list)
 
         self.network.train()
         
         while self._steps < total_steps:
 
             for batch in dataloader:
+                # Profiling
+                if profile_freq > 0 and self._steps % profile_freq == 0:
+                    stop_time = time.time()
+                    profiling_lists['dataset'].append(stop_time - current_time)
+                    current_time = stop_time
+
                 batch = self._format_batch(batch)
 
+                if profile_freq > 0 and self._steps % profile_freq == 0:
+                    stop_time = time.time()
+                    profiling_lists['preprocess'].append(stop_time - current_time)
+                    current_time = stop_time
+
+                # Train the network
                 assert self.network.training, "Network was not in training mode and trainstep was called."
                 losses = self._train_step(batch)
                 for loss_name, loss_value in losses.items():
                     loss_lists[loss_name].append(loss_value)
+
+                if profile_freq > 0 and self._steps % profile_freq == 0:
+                    stop_time = time.time()
+                    profiling_lists['train_step'].append(stop_time - current_time)
+
+                # Increment the number of training steps.
                 self._steps += 1
 
                 # Update the schedulers
@@ -218,6 +239,7 @@ class Algorithm(ABC):
                     log_from_dict(logger, loss_lists, "train")
                     logger.record("time/epochs", epochs)
                     logger.record("time/steps_per_second", log_freq / (current_time - start_time))
+                    log_from_dict(logger, profiling_lists, "time")
                     for name, scheduler in schedulers.items():
                         logger.record("lr/" + name, scheduler.get_last_lr()[0])
                     start_time = current_time
@@ -251,7 +273,8 @@ class Algorithm(ABC):
 
                     # TODO: evaluation episodes.
                     if self.eval_env is not None and eval_ep > 0:
-                        eval_metrics = eval_policy(self.eval_env, self, eval_ep)
+                        with torch.no_grad():
+                            eval_metrics = eval_policy(self.eval_env, self, eval_ep)
                         if loss_metric in eval_metrics:
                             current_validation_metric = eval_metrics[loss_metric]
                         log_from_dict(logger, eval_metrics, "eval")
@@ -267,6 +290,10 @@ class Algorithm(ABC):
                     logger.dump(step=self._steps, dump_csv=True) # Dump the eval metrics to CSV.
                     self.save(path, "final_model") # Also save the final model every eval period.
                     self.network.train()
+
+                # Profiling
+                if profile_freq > 0 and self._steps % profile_freq == 0:
+                    current_time = time.time()
 
                 if self._steps >= total_steps:
                     break
@@ -296,7 +323,7 @@ class Algorithm(ABC):
     def _predict(self, batch, **kwargs):
         '''Internal prediction function, can be overridden'''
         if hasattr(self.network, "predict"):
-            pred = self.network.predict(batch)
+            pred = self.network.predict(batch, **kwargs)
         else:
             if len(kwargs) > 0:
                 raise ValueError("Default predict method does not accept key word args, but they were provided.")
