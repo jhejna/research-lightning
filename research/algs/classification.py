@@ -35,5 +35,6 @@ class Classification(Algorithm):
         Overriding the Algorithm BaseClass Method _train_step.
         Returns a dictionary of validation metrics.
         '''
-        loss, accuracy = self._compute_loss_and_accuracy(batch)
+        with torch.no_grad():
+            loss, accuracy = self._compute_loss_and_accuracy(batch)
         return dict(loss=loss.item(), accuracy=accuracy.item())
