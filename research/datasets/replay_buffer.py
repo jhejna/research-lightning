@@ -22,21 +22,21 @@ def load_episode(path):
         episode = {k: episode[k] for k in episode.keys()}
         return episode
 
-def construct_buffer_helper(space, capacity):
+def construct_buffer_helper(space, capacity, begin_pad=tuple(), end_pad=tuple()):
     if isinstance(space, gym.spaces.Dict):
-        return {k: construct_buffer_helper(v) for k, v in space.items()}
+        return {k: construct_buffer_helper(v, begin_pad=begin_pad, end_pad=end_pad) for k, v in space.items()}
     elif isinstance(space, gym.spaces.Box):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
-        return np.empty((capacity, *space.shape), dtype=dtype)
+        return np.empty((capacity,) + begin_pad + space.shape + end_pad, dtype=dtype)
     elif isinstance(space, gym.spaces.Discrete):
-        return np.empty((capacity,), dtype=np.int64)
+        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.int64)
     elif isinstance(space, np.ndarray):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
-        return np.empty((capacity,) + space.shape, dtype=dtype)
+        return np.empty((capacity,) + begin_pad + space.shape + end_pad, dtype=dtype)
     elif isinstance(space, float):
-        return np.empty((capacity,), dtype=np.float32)
+        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.float32)
     elif isinstance(space, bool):
-        return np.empty((capacity,), dtype=np.bool_)
+        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.bool_)
     else:
         raise ValueError("Invalid space provided")
 

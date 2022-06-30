@@ -16,11 +16,18 @@ if __name__ == "__main__":
     parser.add_argument("--width", type=int, default=160, help="Width of image")
     parser.add_argument("--height", type=int, default=120, help="Height of image")
     parser.add_argument("--strict", action='store_true', default=False, help="Strict")
-    parser.add_argument("--override", metavar="KEY=VALUE", nargs='+', action='append', default=[], help="Set kv pairs used as args for the entry point script.")
+    parser.add_argument("--override", metavar="KEY=VALUE", nargs='+', default=[], help="Set kv pairs used as args for the entry point script.")
+    parser.add_argument("--max-len", type=int, default=1000, help="maximum length of an episode.")
     args = parser.parse_args()
 
     assert args.path.endswith(".pt"), "Must provide a model checkpoint"
     config = Config.load(os.path.dirname(args.path))
+
+    config['train_kwargs']['eval_ep'] = -1 # Avoid loading the eval env
+    config['checkpoint'] = None # Set checkpoint to None
+
+    # Overrides
+    print(args.override)
 
     # Overrides
     for override in args.override:
@@ -40,7 +47,7 @@ if __name__ == "__main__":
     save_gif = args.output is not None
     render_kwargs = dict(mode='rgb_array', width=args.width, height=args.height) if save_gif else dict()
 
-    model = load(config, args.checkpoint, device=args.device, strict=args.strict)
+    model = load(config, args.path, device=args.device, strict=args.strict)
     model.eval_mode() # Place the model in evaluation mode
     env = model.env
     ep_rewards, ep_lengths = [], []
@@ -52,7 +59,7 @@ if __name__ == "__main__":
         frame = env.render(**render_kwargs)
         if save_gif:
             frames.append(frame)
-        while not done:
+        while not done and ep_length <= args.max_len:
             action = model.predict(obs)
             obs, reward, done, info = env.step(action)
             frame = env.render(**render_kwargs)
@@ -71,5 +78,5 @@ if __name__ == "__main__":
     if save_gif:
         # Cut the frames 
         print("Saving a gif of", len(frames), "Frames")
-        imageio.mimsave(args.path, frames[::args.every_n_frames])
+        imageio.mimsave(args.output, frames[::args.every_n_frames])
 
