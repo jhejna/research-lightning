@@ -62,9 +62,9 @@ class DRQV2(Algorithm):
         self._num_ep = 0
 
     def setup_network(self, network_class, network_kwargs):
-        self.network = network_class(self.env.observation_space, self.env.action_space, 
+        self.network = network_class(self.observation_space, self.action_space, 
                                      **network_kwargs).to(self.device)
-        self.target_network = network_class(self.env.observation_space, self.env.action_space, 
+        self.target_network = network_class(self.observation_space, self.action_space, 
                                      **network_kwargs).to(self.device)
         self.target_network.load_state_dict(self.network.state_dict())
         for param in self.target_network.parameters():
@@ -120,7 +120,7 @@ class DRQV2(Algorithm):
         if self.steps == 0: 
             self.dataset.add(self._current_obs) # Store the initial reset observation!
         if self.steps < self.init_steps:
-            action = self.env.action_space.sample()
+            action = self.action_space.sample()
         else:
             self.eval_mode()
             with torch.no_grad():

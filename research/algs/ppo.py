@@ -76,8 +76,8 @@ class PPO(Algorithm):
                 value = utils.to_np(utils.get_from_batch(value, 0))
                 extras = self._compute_extras(dist)
             
-            if isinstance(self.env.action_space, gym.spaces.Box): # Clip the actions
-                clipped_action = np.clip(action, self.env.action_space.low, self.env.action_space.high)
+            if isinstance(self.action_space, gym.spaces.Box): # Clip the actions
+                clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
             
             obs, reward, done, info = self.env.step(clipped_action)
             if isinstance(self.processor, RunningObservationNormalizer):

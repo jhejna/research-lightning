@@ -35,9 +35,9 @@ class SAC(Algorithm):
         return self.log_alpha.exp()
 
     def setup_network(self, network_class, network_kwargs):
-        self.network = network_class(self.env.observation_space, self.env.action_space, 
+        self.network = network_class(self.observation_space, self.action_space, 
                                      **network_kwargs).to(self.device)
-        self.target_network = network_class(self.env.observation_space, self.env.action_space, 
+        self.target_network = network_class(self.observation_space, self.action_space, 
                                      **network_kwargs).to(self.device)
         self.target_network.load_state_dict(self.network.state_dict())
         for param in self.target_network.parameters():
@@ -53,7 +53,7 @@ class SAC(Algorithm):
         # Setup the learned entropy coefficients. This has to be done first so its present in the setup_optim call.
         self.log_alpha = torch.tensor(np.log(self.init_temperature), dtype=torch.float).to(self.device)
         self.log_alpha.requires_grad = True
-        self.target_entropy = -np.prod(self.env.action_space.low.shape)
+        self.target_entropy = -np.prod(self.action_space.low.shape)
 
         self.optim['log_alpha'] = optim_class([self.log_alpha], **optim_kwargs)
 
@@ -102,13 +102,13 @@ class SAC(Algorithm):
         # Step the environment and store the transition data.
         metrics = dict()
         if self._env_steps < self.init_steps:
-            action = self.env.action_space.sample()
+            action = self.action_space.sample()
         else:
             self.eval_mode()
             with torch.no_grad():
                 action = self.predict(self._current_obs, sample=True)
             self.train_mode()
-        action = np.clip(action, self.env.action_space.low, self.env.action_space.high)
+        action = np.clip(action, self.action_space.low, self.action_space.high)
         
         next_obs, reward, done, info = self.env.step(action)
         self._episode_length += 1
