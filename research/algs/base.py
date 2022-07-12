@@ -108,6 +108,9 @@ class Algorithm(ABC):
             self.processor = IdentityProcessor(self.observation_space, self.action_space)
         else:
             self.processor = processor_class(self.observation_space, self.action_space, **processor_kwargs)
+        
+        if self.processor.supports_gpu: # move it to device if it supports GPU computation.
+            self.processor = self.processor.to(self.device)
 
     def setup_network(self, network_class, network_kwargs):
         self.network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
@@ -134,7 +137,7 @@ class Algorithm(ABC):
         Saves a checkpoint of the model and the optimizers
         '''
         optim = {k: v.state_dict() for k, v in self.optim.items()}
-        save_dict = {"network" : self.network.state_dict(), "optim": optim}
+        save_dict = {"network" : self.network.state_dict(), "optim": optim, "processor": self.processor.state_dict()}
         save_dict.update(self._save_extras())
         torch.save(save_dict, os.path.join(path, extension + ".pt"))
 
@@ -151,7 +154,8 @@ class Algorithm(ABC):
         print("[research] loading checkpoint:", checkpoint)
         checkpoint = torch.load(checkpoint, map_location=self.device)
         self.network.load_state_dict(checkpoint['network'], strict=strict)
-
+        self.processor.load_state_dict(checkpoint['processor'], strict=strict)
+        
         for k, v in self.optim.items():
             if strict and k not in checkpoint['optim']:
                 raise ValueError("Strict mode was enabled, but couldn't find optimizer key")
