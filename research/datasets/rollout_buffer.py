@@ -2,7 +2,7 @@ import torch
 import numpy as np
 import math
 
-from .replay_buffer import construct_buffer_helper
+from research.utils.utils import np_dataset_alloc
 
 class RolloutBuffer(torch.utils.data.IterableDataset):
     '''
@@ -33,10 +33,10 @@ class RolloutBuffer(torch.utils.data.IterableDataset):
 
     def setup(self):
         # Setup the required rollout buffers
-        self._obs_buffer = construct_buffer_helper(self.observation_space, self._capacity)
-        self._action_buffer = construct_buffer_helper(self.action_space, self._capacity)
-        self._reward_buffer = construct_buffer_helper(0.0, self._capacity)
-        self._done_buffer = construct_buffer_helper(False, self._capacity)
+        self._obs_buffer = np_dataset_alloc(self.observation_space, self._capacity)
+        self._action_buffer = np_dataset_alloc(self.action_space, self._capacity)
+        self._reward_buffer = np_dataset_alloc(0.0, self._capacity)
+        self._done_buffer = np_dataset_alloc(False, self._capacity)
         self._info_buffers = dict()
         self._idx = 0
 
@@ -68,14 +68,14 @@ class RolloutBuffer(torch.utils.data.IterableDataset):
 
         for k, v in kwargs.items():
             if k not in self._info_buffers:
-                self._info_buffers[k] = construct_buffer_helper(v, self._capacity)
+                self._info_buffers[k] = np_dataset_alloc(v, self._capacity)
             add_to_buffer_helper(self._info_buffers[k], v.copy())
 
         self._idx += 1 # increase the index
 
     def prepare_buffer(self):
         assert "value" in self._info_buffers, "Attempted to use Rollout Buffer but values were not added."
-        self._advantage_buffer = construct_buffer_helper(0.0, self._capacity)
+        self._advantage_buffer = np_dataset_alloc(0.0, self._capacity)
         
         last_gae_lam = 0
         for step in reversed(range(1, self._capacity - 1)): # Stay within the valid range

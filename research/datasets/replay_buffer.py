@@ -2,12 +2,12 @@ import torch
 import numpy as np
 import tempfile
 import io
-import gym
 import collections
 import copy
 import datetime
 import os
 import shutil
+from research.utils.utils import np_dataset_alloc, get_from_batch
 
 def save_episode(episode, path):
     with io.BytesIO() as bs:
@@ -22,24 +22,6 @@ def load_episode(path):
         episode = {k: episode[k] for k in episode.keys()}
         return episode
 
-def construct_buffer_helper(space, capacity, begin_pad=tuple(), end_pad=tuple()):
-    if isinstance(space, gym.spaces.Dict):
-        return {k: construct_buffer_helper(v, begin_pad=begin_pad, end_pad=end_pad) for k, v in space.items()}
-    elif isinstance(space, gym.spaces.Box):
-        dtype = np.float32 if space.dtype == np.float64 else space.dtype
-        return np.empty((capacity,) + begin_pad + space.shape + end_pad, dtype=dtype)
-    elif isinstance(space, gym.spaces.Discrete):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.int64)
-    elif isinstance(space, np.ndarray):
-        dtype = np.float32 if space.dtype == np.float64 else space.dtype
-        return np.empty((capacity,) + begin_pad + space.shape + end_pad, dtype=dtype)
-    elif isinstance(space, float):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.float32)
-    elif isinstance(space, bool):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.bool_)
-    else:
-        raise ValueError("Invalid space provided")
-
 class ReplayBuffer(torch.utils.data.IterableDataset):
     '''
     This replay buffer is carefully implemented to run efficiently and prevent multiprocessing
@@ -50,7 +32,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
     def __init__(self, observation_space, action_space, 
                        discount=0.99, nstep=1, preload_path=None,
                        capacity=100000, fetch_every=1000, cleanup=True,
-                       batch_size=None, sample_multiplier=1.5, stack=1):
+                       batch_size=None, sample_multiplier=1.5, stack=1, pad=0):
         # Observation and action space values
         self.observation_space = observation_space
         self.action_space = action_space
@@ -60,6 +42,9 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         self.nstep = nstep
         self.stack = stack
         self.batch_size = 1 if batch_size is None else batch_size
+        if pad > 0:
+            assert self.stack > 1, "Pad > 0 doesn't make sense if we are not padding."
+        self.pad = pad
 
         # Data storage values
         self.capacity = capacity
@@ -126,11 +111,11 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         self._size = 0
         self._capacity = self.capacity // self._num_workers
         
-        self._obs_buffer = construct_buffer_helper(self.observation_space, self._capacity)
-        self._action_buffer = construct_buffer_helper(self.action_space, self._capacity)
-        self._reward_buffer = construct_buffer_helper(0.0, self._capacity)
-        self._discount_buffer = construct_buffer_helper(0.0, self._capacity)
-        self._done_buffer = construct_buffer_helper(False, self._capacity)
+        self._obs_buffer = np_dataset_alloc(self.observation_space, self._capacity)
+        self._action_buffer = np_dataset_alloc(self.action_space, self._capacity)
+        self._reward_buffer = np_dataset_alloc(0.0, self._capacity)
+        self._discount_buffer = np_dataset_alloc(0.0, self._capacity)
+        self._done_buffer = np_dataset_alloc(False, self._capacity)
         self._info_buffers = dict()
 
         # setup episode tracker to track loaded episodes
@@ -151,10 +136,12 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         if self._idx + num_to_add > self._capacity:
             # Add all we can at first, then add the rest later
             num_b4_wrap = self._capacity - self._idx
-            self._add_to_buffer(obs[:num_b4_wrap], action[:num_b4_wrap], reward[:num_b4_wrap], 
-                                done[:num_b4_wrap], discount[:num_b4_wrap])
-            self._add_to_buffer(obs[num_b4_wrap:], action[num_b4_wrap:], reward[num_b4_wrap:], 
-                                done[num_b4_wrap:], discount[num_b4_wrap:])
+            self._add_to_buffer(get_from_batch(obs, 0, num_b4_wrap), get_from_batch(obs, 0, num_b4_wrap),
+                                reward[:num_b4_wrap], done[:num_b4_wrap], discount[:num_b4_wrap],
+                                **get_from_batch(kwargs, 0, num_b4_wrap))
+            self._add_to_buffer(get_from_batch(obs, num_b4_wrap, num_to_add), get_from_batch(obs, num_b4_wrap, num_to_add),
+                                reward[num_b4_wrap:], done[num_b4_wrap:], discount[num_b4_wrap:],
+                                **get_from_batch(kwargs, num_b4_wrap, num_to_add))
         else:
             # Add the transition
             def add_to_buffer_helper(buffer, value):
@@ -164,16 +151,17 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                 elif isinstance(buffer, np.ndarray):
                     buffer[self._idx:self._idx+num_to_add] = value
                 else:
-                    raise ValueError("Attempted buffer ran out of space!")
+                    raise ValueError("Invalid buffer type given.")
             
             add_to_buffer_helper(self._obs_buffer, obs)
             add_to_buffer_helper(self._action_buffer, action)
             add_to_buffer_helper(self._reward_buffer, reward)
             add_to_buffer_helper(self._discount_buffer, discount)
             add_to_buffer_helper(self._done_buffer, done)
+            
             for k, v in kwargs.items():
                 if k not in self._info_buffers:
-                    self._info_buffers[k] = construct_buffer_helper(v, self._capacity)
+                    self._info_buffers[k] = np_dataset_alloc(v, self._capacity)
                 add_to_buffer_helper(self._info_buffers[k], v.copy())
 
             self._idx = (self._idx + num_to_add) % self._capacity
@@ -292,42 +280,44 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                 except OSError:
                     pass
 
-    def _get_one_idx(self, stack):
+    def _get_one_idx(self, stack, pad):
         # Add 1 for the first dummy transition
         idx = np.random.randint(0, self._size - self.nstep*stack) + 1
-        done_idxs = idx + np.arange(self.nstep*stack) - 1
+        done_idxs = idx + np.arange(self.nstep*(stack - pad)) - 1 
         if np.any(self._done_buffer[done_idxs]):
             # If the episode is done at any point in the range, we need to sample again!
-            return self._get_one_idx(stack)
+            # Note that we removed the pad length, as we can check the padding later
+            return self._get_one_idx(stack, pad)
         if stack > 1:
-            idx = idx + np.arange(stack)*self.nstep
+            idx = idx + np.arange(stack)*self.nstep            
         return idx
 
-    def _get_many_idxs(self, batch_size, stack, depth=0):
+    def _get_many_idxs(self, batch_size, stack, pad, depth=0):
         idxs = np.random.randint(0, self._size - self.nstep*stack, size=int(self.sample_multiplier*batch_size)) + 1
 
-        done_idxs = np.expand_dims(idxs, axis=-1) + np.arange(self.nstep*stack) - 1
+        done_idxs = np.expand_dims(idxs, axis=-1) + np.arange(self.nstep*(stack - pad)) - 1
         valid = np.logical_not(np.any(self._done_buffer[done_idxs], axis=-1)) # Compute along the done axis, not the index axis.
 
         valid_idxs = idxs[valid == True] # grab only the idxs that are still valid.
         if len(valid_idxs) < batch_size and depth < 100: # try a max of 100 times
             print("[research ReplayBuffer] Buffer Sampler did not recieve batch_size number of valid indices. Consider increasing sample_multiplier.")
-            return self._get_many_idxs(batch_size, stack, depth=depth+1)
+            return self._get_many_idxs(batch_size, stack, pad, depth=depth+1)
         idxs =  valid_idxs[:batch_size] # Return the first [:batch_size] of them.
         if stack > 1:
             stack_idxs = np.arange(stack)*self.nstep
             idxs = np.expand_dims(idxs, axis=-1) + stack_idxs
         return idxs
 
-    def sample(self, batch_size=None, stack=1):
+    def sample(self, batch_size=None, stack=1, pad=0):
         if self._size <= self.nstep*stack + 2:
             return {}
         # NOTE: one small bug is that we won't end up being able to sample segments that span
-        # Across the barrier at the end of an episode. We lose 1 to self.nstep transitions.
+        # Across the barrier of the replay buffer. We lose 1 to self.nstep transitions. 
+        # This is only a problem if we keep the capacity too low.
         if batch_size > 1:
-            idxs = self._get_many_idxs(batch_size, stack)
+            idxs = self._get_many_idxs(batch_size, stack, pad)
         else:
-            idxs = self._get_one_idx(stack)
+            idxs = self._get_one_idx(stack, pad)
         obs_idxs = idxs - 1
         next_obs_idxs = idxs + self.nstep - 1
 
@@ -339,14 +329,34 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         for i in range(self.nstep):
             step_reward = self._reward_buffer[idxs + i]
             reward += discount * step_reward
-            discount *= self._discount_buffer[idxs + i] * self.discount     
+            discount *= self._discount_buffer[idxs + i] * self.discount
         kwargs = {k: v[next_obs_idxs] for k, v in self._info_buffers.items()}
-        return dict(obs=obs, action=action, next_obs=next_obs, reward=reward, discount=discount, **kwargs)
+
+        batch = dict(obs=obs, action=action, next_obs=next_obs, reward=reward, discount=discount, **kwargs)
+
+        # Create the mask if we used padding
+        if pad > 0:
+            # Check the validity via the done buffer to determine the padding mask
+            mask = np.zeros(reward.shape, dtype=np.bool_)
+            for i in range(self.nstep):
+                mask = mask + self._done_buffer[idxs + i]
+            # Now set everything past the first true to be true
+            mask_inds = np.argmax(mask, axis=-1)
+            if len(mask.shape) == 1:
+                mask[mask_inds] = True
+            elif len(mask.shape) == 2:
+                for i in range(mask.shape[0]):
+                    mask[i, mask_inds[i]:] = True
+            else:
+                raise ValueError("Mask was an invalid size")
+            batch['mask'] = mask
+        
+        return batch
 
     def __iter__(self):
         self.setup()
         while True:
-            yield self.sample(batch_size=self.batch_size, stack=self.stack)
+            yield self.sample(batch_size=self.batch_size, stack=self.stack, pad=self.pad)
             if self.is_parallel:
                 self._samples_since_last_load += 1
                 if self._samples_since_last_load >= self.fetch_every:
