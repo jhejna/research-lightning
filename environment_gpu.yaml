@@ -40,6 +40,6 @@ dependencies:
 
   - pip
   - pip:
-      - gym>=0.12
+      - gym<=0.25.0
       - dm_control
       - mujoco-py<2.2,>=2.1
