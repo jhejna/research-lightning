@@ -91,7 +91,6 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
 
     def setup(self):
         if hasattr(self, "_setup"):
-            assert self._setup, "If we have the _setup attribute the buffer should be setup"
             assert not self.is_parallel, "Recalled setup on parallel replay buffer! This means __iter__ was called twice."
             return # We are in serial mode, we can create another iterator
         else:        
@@ -161,7 +160,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             
             for k, v in kwargs.items():
                 if k not in self._info_buffers:
-                    self._info_buffers[k] = np_dataset_alloc(v, self._capacity)
+                    sample_value = get_from_batch(v, 0) if num_to_add > 1 else v
+                    self._info_buffers[k] = np_dataset_alloc(sample_value, self._capacity)
                 add_to_buffer_helper(self._info_buffers[k], v.copy())
 
             self._idx = (self._idx + num_to_add) % self._capacity
@@ -340,8 +340,11 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             mask = np.zeros(reward.shape, dtype=np.bool_)
             for i in range(self.nstep):
                 mask = mask + self._done_buffer[idxs + i]
+            
             # Now set everything past the first true to be true
             mask_inds = np.argmax(mask, axis=-1)
+            mask_inds[np.sum(mask, axis=-1) == 0] = mask.shape[-1]
+            
             if len(mask.shape) == 1:
                 mask[mask_inds] = True
             elif len(mask.shape) == 2:
