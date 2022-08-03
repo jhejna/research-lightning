@@ -29,7 +29,7 @@ class IdentityProcessor(Processor):
     '''
     This processor just performs the identity operation
     '''
-    def __call__(self, batch):
+    def forward(self, batch):
         return batch
 
     def unprocess(self, batch):

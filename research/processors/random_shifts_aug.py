@@ -48,7 +48,7 @@ class RandomShiftsAug(Processor):
                              padding_mode='zeros',
                              align_corners=False)
 
-    def __call__(self, batch):
+    def forward(self, batch):
         if isinstance(batch, torch.Tensor):
             batch = self._flatten(batch.float())
         elif isinstance(batch, dict):

@@ -57,7 +57,7 @@ class RunningObservationNormalizer(Processor):
             raise ValueError("Invalid input provided.")
         self._updated_stats = True
     
-    def __call__(self, batch):
+    def forward(self, batch):
         if self._updated_stats:
             # Update the tensors
             device = utils.get_device(batch)
