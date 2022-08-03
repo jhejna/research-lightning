@@ -7,7 +7,8 @@ import copy
 import datetime
 import os
 import shutil
-from research.utils.utils import np_dataset_alloc, get_from_batch
+import gym
+from research.utils.utils import np_dataset_alloc, get_from_batch, squeeze
 
 def save_episode(episode, path):
     with io.BytesIO() as bs:
@@ -32,7 +33,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
     def __init__(self, observation_space, action_space, 
                        discount=0.99, nstep=1, preload_path=None,
                        capacity=100000, fetch_every=1000, cleanup=True,
-                       batch_size=None, sample_multiplier=1.5, stack=1, pad=0):
+                       batch_size=None, sample_multiplier=1.5, stack=1, pad=0,
+                       use_next_obs=True):
         # Observation and action space values
         self.observation_space = observation_space
         self.action_space = action_space
@@ -45,6 +47,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         if pad > 0:
             assert self.stack > 1, "Pad > 0 doesn't make sense if we are not padding."
         self.pad = pad
+        self.use_next_obs = use_next_obs
 
         # Data storage values
         self.capacity = capacity
@@ -61,6 +64,10 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
     @property
     def is_parallel(self):
         return not hasattr(self, "is_serial")
+
+    @property
+    def is_setup(self):
+        return hasattr(self, "_setup")
 
     def save(self, path):
         '''
@@ -90,7 +97,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             pass
 
     def setup(self):
-        if hasattr(self, "_setup"):
+        if self.is_setup:
             assert not self.is_parallel, "Recalled setup on parallel replay buffer! This means __iter__ was called twice."
             return # We are in serial mode, we can create another iterator
         else:        
@@ -123,12 +130,14 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
 
         # Preload the data if needed
         if self.preload_path is not None:
-            self._load(self.preload_path, cleanup=False) # Load any initial episodes        
-
+            self._load(self.preload_path, cleanup=False) # Load any initial episodes
+        self._load(self.storage_path, cleanup=self.cleanup) # Load anything we added before starting the iterator.
+    
     def _add_to_buffer(self, obs, action, reward, done, discount, **kwargs):
         # Can add in batches or serially.
         if isinstance(reward, list) or isinstance(reward, np.ndarray):
             num_to_add = len(reward)
+            assert num_to_add > 1, "If inputting lists or arrays should have more than one timestep"
         else:
             num_to_add = 1
 
@@ -142,11 +151,11 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                                 reward[num_b4_wrap:], done[num_b4_wrap:], discount[num_b4_wrap:],
                                 **get_from_batch(kwargs, num_b4_wrap, num_to_add))
         else:
-            # Add the transition
+            # Add the segment
             def add_to_buffer_helper(buffer, value):
                 if isinstance(buffer, dict):
-                    for k, v in buffer.items():
-                        add_to_buffer_helper(buffer, value[k])
+                    for k in buffer.keys():
+                        add_to_buffer_helper(buffer[k], value[k])
                 elif isinstance(buffer, np.ndarray):
                     buffer[self._idx:self._idx+num_to_add] = value
                 else:
@@ -167,12 +176,15 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             self._idx = (self._idx + num_to_add) % self._capacity
             self._size = min(self._size + num_to_add, self._capacity)
     
-    def add_to_current_ep(self, key, value):
+    def add_to_current_ep(self, key, value, extend=False):
         if isinstance(value, dict):
             for k, v in value.items():
-                self.add_to_current_ep(key + '_' + k, v)
+                self.add_to_current_ep(key + '_' + k, v, extend=extend)
         else:
-            self.current_ep[key].append(value)
+            if extend:
+                self.current_ep[key].extend(value)
+            else:
+                self.current_ep[key].append(value)
 
     def add(self, obs, action=None, reward=None, done=None, discount=None, next_obs=None, **kwargs):
         # Make sure that if we are adding the first transition, it is consistent
@@ -185,8 +197,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             done = False
             discount = 1.0
         
-        # Case 1: Not Parallel and Cleanup: just add to buffer
-        if not self.is_parallel:
+        # Direclty add to the buffer if we are serial and have setup the buffers.
+        if (not self.is_parallel and self.is_setup): 
             # Deep copy to make sure we don't mess up references.
             if next_obs is None:
                 self._add_to_buffer(copy.deepcopy(obs), copy.deepcopy(action), reward, done, discount, **kwargs)
@@ -208,14 +220,15 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             self.current_ep = collections.defaultdict(list)
 
         # Add values to the current episode
-        self.add_to_current_ep("obs", obs)
-        self.add_to_current_ep("action", action)
-        self.add_to_current_ep("reward", reward)
-        self.add_to_current_ep("done", done)
-        self.add_to_current_ep("discount", discount)
-        self.add_to_current_ep("kwargs", kwargs) # supports dict spaces
-        
-        if done:
+        extend = isinstance(reward, list) or isinstance(reward, np.ndarray)
+        self.add_to_current_ep("obs", obs, extend)
+        self.add_to_current_ep("action", action, extend)
+        self.add_to_current_ep("reward", reward, extend)
+        self.add_to_current_ep("done", done, extend)
+        self.add_to_current_ep("discount", discount, extend)
+        self.add_to_current_ep("kwargs", kwargs, extend) # supports dict spaces
+
+        if (isinstance(done, (bool, float, int)) and done) or (isinstance(done, (np.ndarray, list)) and done[-1]):
             # save the episode
             keys = list(self.current_ep.keys())
             assert len(self.current_ep['reward']) == len(self.current_ep['done'])
@@ -230,7 +243,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             episode = {}
             for k, v in self.current_ep.items():
                 first_value = v[0]
-                if isinstance(first_value, np.ndarray):
+                if isinstance(first_value, (np.ndarray, np.generic)):
                     dtype = first_value.dtype
                 elif isinstance(first_value, int):
                     dtype = np.int64
@@ -308,6 +321,25 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             idxs = np.expand_dims(idxs, axis=-1) + stack_idxs
         return idxs
 
+    def _compute_mask(self, idxs):
+        # Check the validity via the done buffer to determine the padding mask
+        mask = np.zeros(idxs.shape, dtype=np.bool_)
+        for i in range(self.nstep):
+            mask = mask + self._done_buffer[idxs + (i - 1)] # Subtract one when checking for parity with index sampling.
+        # Now set everything past the first true to be true
+        mask_inds = np.argmax(mask, axis=-1)
+
+        if len(mask.shape) == 1: # Single data point case
+            mask_inds = mask.shape[-1] if np.sum(mask, axis=-1) == 0 else mask_inds
+            mask[mask_inds:] = True
+        elif len(mask.shape) == 2: # Multiple data point case
+            mask_inds[np.sum(mask, axis=-1) == 0] = mask.shape[-1]
+            for i in range(mask.shape[0]):
+                mask[i, mask_inds[i]:] = True
+        else:
+            raise ValueError("Mask was an invalid size")
+        return mask
+
     def sample(self, batch_size=None, stack=1, pad=0):
         if self._size <= self.nstep*stack + 2:
             return {}
@@ -321,38 +353,21 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         obs_idxs = idxs - 1
         next_obs_idxs = idxs + self.nstep - 1
 
-        obs = {k:v[obs_idxs] for k, v in self._obs_buffer} if isinstance(self._obs_buffer, dict) else self._obs_buffer[obs_idxs]
-        action = {k:v[idxs] for k, v in self._action_buffer} if isinstance(self._action_buffer, dict) else self._action_buffer[idxs]
-        next_obs = {k:v[next_obs_idxs] for k, v in self._obs_buffer} if isinstance(self._obs_buffer, dict) else self._obs_buffer[next_obs_idxs]
+        obs = {k:v[obs_idxs] for k, v in self._obs_buffer.items()} if isinstance(self._obs_buffer, dict) else self._obs_buffer[obs_idxs]
+        action = {k:v[idxs] for k, v in self._action_buffer.items()} if isinstance(self._action_buffer, dict) else self._action_buffer[idxs]
         reward = np.zeros_like(self._reward_buffer[idxs])
         discount = np.ones_like(self._discount_buffer[idxs])
         for i in range(self.nstep):
-            step_reward = self._reward_buffer[idxs + i]
-            reward += discount * step_reward
+            reward += discount * self._reward_buffer[idxs + i]
             discount *= self._discount_buffer[idxs + i] * self.discount
+        
         kwargs = {k: v[next_obs_idxs] for k, v in self._info_buffers.items()}
+        if self.use_next_obs:
+            kwargs['next_obs'] = {k:v[next_obs_idxs] for k, v in self._obs_buffer.items()} if isinstance(self._obs_buffer, dict) else self._obs_buffer[next_obs_idxs]
 
-        batch = dict(obs=obs, action=action, next_obs=next_obs, reward=reward, discount=discount, **kwargs)
-
-        # Create the mask if we used padding
+        batch = dict(obs=obs, action=action, reward=reward, discount=discount, **kwargs)
         if pad > 0:
-            # Check the validity via the done buffer to determine the padding mask
-            mask = np.zeros(reward.shape, dtype=np.bool_)
-            for i in range(self.nstep):
-                mask = mask + self._done_buffer[idxs + i]
-            
-            # Now set everything past the first true to be true
-            mask_inds = np.argmax(mask, axis=-1)
-            mask_inds[np.sum(mask, axis=-1) == 0] = mask.shape[-1]
-            
-            if len(mask.shape) == 1:
-                mask[mask_inds] = True
-            elif len(mask.shape) == 2:
-                for i in range(mask.shape[0]):
-                    mask[i, mask_inds[i]:] = True
-            else:
-                raise ValueError("Mask was an invalid size")
-            batch['mask'] = mask
+            batch['mask'] = self._compute_mask(idxs)
         
         return batch
 
@@ -365,3 +380,101 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                 if self._samples_since_last_load >= self.fetch_every:
                     self._load(self.storage_path, cleanup=self.cleanup)
                     self._samples_since_last_load = 0
+
+class HindsightRepalyBuffer(ReplayBuffer):
+
+    '''
+    An efficient class for replay buffer sampling. For efficiency, one must
+    pass in a version of the desired reward function that works on batches of data.
+
+    TODO: Documentation
+    '''
+
+    def __init__(self, *args, reward_fn=None, discount_fn=None, goal_key="desired_goal", achieved_key="achieved_goal", 
+                              strategy="future", relabel_fraction=0.5, max_lookahead=500, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.reward_fn = reward_fn
+        self.discount_fn = discount_fn
+        self.goal_key = goal_key
+        self.achieved_key = achieved_key
+        self.strategy = strategy
+        self.max_lookahead = max_lookahead
+        self.relabel_fraction = relabel_fraction
+        assert isinstance(self.observation_space, gym.spaces.Dict), "HER Replay Buffer depends on Dict Spaces."
+
+    def sample(self, batch_size=None, stack=1, pad=0):
+        if self._size <= self.nstep*stack + 2:
+            return {}
+        # NOTE: one small bug is that we won't end up being able to sample segments that span
+        # Across the barrier of the replay buffer. We lose 1 to self.nstep transitions. 
+        # This is only a problem if we keep the capacity too low.
+        if batch_size > 1:
+            idxs = self._get_many_idxs(batch_size, stack, pad)
+        else:
+            idxs = self._get_one_idx(stack, pad)
+            # Convert idxs to numpy array for HER sampling
+            idxs = np.array([idxs])
+        obs_idxs = idxs - 1
+        next_obs_idxs = idxs + self.nstep - 1
+
+        # copies are added so we do not modify the original buffers when relabeling
+        obs = {k:v[obs_idxs].copy() for k, v in self._obs_buffer.items()}
+        action = {k:v[idxs] for k, v in self._action_buffer.items()} if isinstance(self._action_buffer, dict) else self._action_buffer[idxs]
+        kwargs = {k: v[next_obs_idxs] for k, v in self._info_buffers.items()}
+
+        her_idxs = np.where(np.random.uniform(size=batch_size) < self.relabel_fraction)
+
+        # Note that we carefully have to handle padding, as we can sample some invalid indexes on stacking.
+        last_idxs = (idxs[..., -1] if stack > 1 else idxs)[her_idxs] # Get the last indexes of the sample.
+        start_idxs = last_idxs - pad*self.nstep # adjust backwards for padding
+        # Get indexes of all values to check ahead. The shape is (B, max_lookahead + pad*self.nstep)
+        lookahead_idxs = np.expand_dims(start_idxs, axis=-1) + np.arange(self.max_lookahead + pad*self.nstep)
+        lookahead_idxs = np.clip(lookahead_idxs, 0, self._size - 1) # Avoid going over or under
+        # Look at the done buffer to see where the episode finishes
+        sample_limits = np.argmax(self._done_buffer[lookahead_idxs], axis=-1)
+        sample_limits[np.sum(self._done_buffer[lookahead_idxs], axis=-1) == 0] = self.max_lookahead
+        end_idxs = start_idxs + sample_limits # get the last valid point
+        end_idxs = np.minimum(end_idxs, self._size) # Make sure we trim down so we don't go over the end of the buffer. 
+        start_idxs = np.minimum(last_idxs, end_idxs) # Recompute start index so we start at the last observation, or the end index in case of a middle terminal
+
+        if self.strategy == "last": # Just use the last transtion of the episode or the max look ahead
+            goal_idxs = end_idxs
+        elif self.strategy == "next": # Use the last valid transition of the stack.
+            goal_idxs = last_idxs
+        elif self.strategy == "future": # Sample a future state
+            goal_idxs = np.random.randint(low=start_idxs, high=end_idxs) # TODO: Check if should add 1
+        else:
+            raise ValueError("Invalid Strategy Selected.")
+
+        # Perform relabeling on the observations
+        if len(idxs.shape) == 2:
+            goal_idxs = np.expand_dims(goal_idxs, axis=-1)
+        
+        obs[self.goal_key][her_idxs] = self._obs_buffer[self.achieved_key][goal_idxs]
+        if self.use_next_obs:
+            next_obs = {k:v[next_obs_idxs].copy() for k, v in self._obs_buffer.items()}
+            next_obs[self.goal_key][her_idxs] = self._obs_buffer[self.achieved_key][goal_idxs]
+            kwargs['next_obs'] = next_obs
+
+        # Compute the reward
+        reward = np.zeros_like(self._reward_buffer[idxs], dtype=np.float32)
+        discount = np.ones_like(self._discount_buffer[idxs], dtype=np.float32)
+        for i in range(self.nstep):
+            # Get the relabeled observations
+            desired = self._obs_buffer[self.goal_key][idxs + i].copy()
+            desired[her_idxs] = self._obs_buffer[self.achieved_key][goal_idxs]
+            achieved = self._obs_buffer[self.achieved_key][idxs + i]
+            # Compute the reward and discounts
+            reward += discount * self.reward_fn(achieved, desired)
+            step_discount = self.discount_fn(achieved, desired) if self.discount_fn is not None else 1.0
+            discount *= step_discount * self.discount
+            
+        batch = dict(obs=obs, action=action, reward=reward, discount=discount, **kwargs)
+        if pad > 0:
+            batch['mask'] = self._compute_mask(idxs)
+
+        # We need to unsqueeze everything if we used batch size == 1
+        if batch_size == 1:
+            batch = squeeze(batch, 0)
+        
+        return batch
