@@ -442,7 +442,7 @@ class HindsightRepalyBuffer(ReplayBuffer):
         elif self.strategy == "next": # Use the last valid transition of the stack.
             goal_idxs = last_idxs
         elif self.strategy == "future": # Sample a future state
-            goal_idxs = np.random.randint(low=start_idxs, high=end_idxs) # TODO: Check if should add 1
+            goal_idxs = np.random.randint(low=start_idxs, high=end_idxs+1)
         else:
             raise ValueError("Invalid Strategy Selected.")
 
