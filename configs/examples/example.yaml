@@ -49,7 +49,7 @@ train_kwargs: # Arguments given to Algorithm.train
   total_steps: 10000 # The total number of steps to train
   log_freq: 25 # How often to log values
   eval_freq: 500 # How often to run evals
-  max_eval_steps: 100 # Maximum number of steps from the validatoin dataset, if included
+  max_eval_steps: 100 # Maximum number of steps from the validation dataset, if included
   eval_fn: null
   loss_metric: loss # The validation metric that determines when to save the "best_checkpoint"
   workers: 2 # Number of dataloader workers.
