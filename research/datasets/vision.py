@@ -1,7 +1,10 @@
+from typing import Any, Dict, List, Tuple
+
+import gym
+import numpy as np
 import torch
 import torchvision
-import numpy as np
-from gym import spaces
+
 
 # Define an easy way of fetching transforms
 def get_transforms(transforms):
@@ -11,9 +14,19 @@ def get_transforms(transforms):
         assembled_transforms.append(transform)
     return torchvision.transforms.Compose(assembled_transforms)
 
-class TorchVisionDataset(torch.utils.data.Dataset):
 
-    def __init__(self, observation_space, action_space, dataset, root, transform=[("ToTensor", {}),], **kwargs):
+class TorchVisionDataset(torch.utils.data.Dataset):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        dataset: str,
+        root: str,
+        transform: List[Tuple[str, Dict]] = [
+            ("ToTensor", {}),
+        ],
+        **kwargs,
+    ):
         super().__init__()
         transform = get_transforms(transform)
         dataset_class = vars(torchvision.datasets)[dataset]
@@ -21,12 +34,11 @@ class TorchVisionDataset(torch.utils.data.Dataset):
         # Verify the shape of the dataset
         x, y = self.dataset[0]
         assert x.shape == observation_space.shape, "Model did not have correct observation shape"
-        assert isinstance(action_space, spaces.Discrete)
+        assert isinstance(action_space, gym.spaces.Discrete)
         assert np.isscalar(y)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int) -> Any:
         return self.dataset[index]
-    
-    def __len__(self):
-        return len(self.dataset)
 
+    def __len__(self) -> int:
+        return len(self.dataset)
