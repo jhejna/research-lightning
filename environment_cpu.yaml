@@ -4,7 +4,13 @@ channels:
   - defaults
 dependencies:
   - python
-  
+
+  # Development
+  - black
+  - isort
+  - flake8
+  - conda-forge::pre-commit
+
   # pytorch
   - pytorch
   - cpuonly
@@ -39,6 +45,6 @@ dependencies:
 
   - pip
   - pip:
-      - gym<=0.25.0
+      - gym<=0.24.1
       - dm_control
       - mujoco-py<2.2,>=2.1
