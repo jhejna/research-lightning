@@ -185,7 +185,7 @@ class Algorithm(ABC):
 
         self._load_extras(checkpoint, strict=strict)
 
-    def _load_extras(self, checkpoint: Any, strict: bool = True):
+    def _load_extras(self, checkpoint: Any, strict: bool = True) -> None:
         """
         override this method to load any extra values or tensors that were saved
         """
