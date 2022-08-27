@@ -41,8 +41,8 @@ class Algorithm(ABC):
     def __init__(
         self,
         env: gym.Env,
-        network_class: torch.nn.Module,
-        dataset_class: Union[torch.utils.data.IterableDataset, torch.utils.data.Dataset],
+        network_class: Type[torch.nn.Module],
+        dataset_class: Union[Type[torch.utils.data.IterableDataset], Type[torch.utils.data.Dataset]],
         network_kwargs: Dict = {},
         dataset_kwargs: Dict = {},
         device: Union[str, torch.device] = "auto",

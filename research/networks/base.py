@@ -1,11 +1,25 @@
+from typing import Any, Dict, Optional, Type, Union
+
+import gym
+import torch
 from torch import nn
+
 import research
 
-class ActorCriticPolicy(nn.Module):
 
-    def __init__(self, observation_space, action_space, 
-                       actor_class, critic_class, encoder_class=None, 
-                       actor_kwargs={}, critic_kwargs={}, encoder_kwargs={}, **kwargs) -> None:
+class ActorCriticPolicy(nn.Module):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        actor_class: Type[nn.Module],
+        critic_class: Type[nn.Module],
+        encoder_class: Optional[Type[nn.Module]] = None,
+        actor_kwargs: Dict = {},
+        critic_kwargs: dict = {},
+        encoder_kwargs: Dict = {},
+        **kwargs,
+    ) -> None:
         super().__init__()
         # Update all dictionaries with the generic kwargs
         self.action_space = action_space
@@ -23,8 +37,10 @@ class ActorCriticPolicy(nn.Module):
         self.reset_actor()
         self.reset_critic()
 
-    def reset_encoder(self, device=None):
-        encoder_class = vars(research.networks)[self.encoder_class] if isinstance(self.encoder_class, str) else self.encoder_class
+    def reset_encoder(self, device: Optional[Union[str, torch.device]] = None) -> None:
+        encoder_class = (
+            vars(research.networks)[self.encoder_class] if isinstance(self.encoder_class, str) else self.encoder_class
+        )
         if encoder_class is not None:
             self._encoder = encoder_class(self.observation_space, self.action_space, **self.encoder_kwargs)
         else:
@@ -32,36 +48,43 @@ class ActorCriticPolicy(nn.Module):
         if device is not None:
             self._encoder = self._encoder.to(device)
 
-    def reset_actor(self, device=None):
-        observation_space = self.encoder.output_space if hasattr(self.encoder, "output_space") else self.observation_space
-        actor_class = vars(research.networks)[self.actor_class] if isinstance(self.actor_class, str) else self.actor_class
+    def reset_actor(self, device: Optional[Union[str, torch.device]] = None) -> None:
+        observation_space = (
+            self.encoder.output_space if hasattr(self.encoder, "output_space") else self.observation_space
+        )
+        actor_class = (
+            vars(research.networks)[self.actor_class] if isinstance(self.actor_class, str) else self.actor_class
+        )
         self._actor = actor_class(observation_space, self.action_space, **self.actor_kwargs)
         if device is not None:
             self._actor = self._actor.to(self.device)
 
-    def reset_critic(self, device=None):
-        observation_space = self.encoder.output_space if hasattr(self.encoder, "output_space") else self.observation_space
-        critic_class = vars(research.networks)[self.critic_class] if isinstance(self.critic_class, str) else self.critic_class
+    def reset_critic(self, device: Optional[Union[str, torch.device]] = None) -> None:
+        observation_space = (
+            self.encoder.output_space if hasattr(self.encoder, "output_space") else self.observation_space
+        )
+        critic_class = (
+            vars(research.networks)[self.critic_class] if isinstance(self.critic_class, str) else self.critic_class
+        )
         self._critic = critic_class(observation_space, self.action_space, **self.critic_kwargs)
         if device is not None:
             self._critic = self._critic.to(device)
-    
+
     @property
-    def actor(self):
+    def actor(self) -> nn.Module:
         return self._actor
-    
+
     @property
-    def critic(self):
+    def critic(self) -> nn.Module:
         return self._critic
 
     @property
-    def encoder(self):
+    def encoder(self) -> nn.Module:
         return self._encoder
-        
-    def predict(self, obs, **kwargs):
+
+    def predict(self, obs: Any, **kwargs) -> Any:
         obs = self._encoder(obs)
         if hasattr(self._actor, "predict"):
             return self._actor.predict(obs, **kwargs)
         else:
             return self._actor(obs)
-

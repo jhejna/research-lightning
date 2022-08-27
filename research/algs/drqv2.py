@@ -1,10 +1,15 @@
-import torch
-import numpy as np
 import itertools
+from typing import Any, Dict, Tuple, Type, Union
+
+import gym
+import numpy as np
+import torch
+
+from research.networks.base import ActorCriticPolicy
+from research.utils.utils import to_device, to_tensor
 
 from .base import Algorithm
-from research.networks.base import ActorCriticPolicy
-from research.utils.utils import to_tensor, to_device
+
 
 class TruncatedNormal(torch.distributions.Normal):
     def __init__(self, loc, scale, low=-1.0, high=1.0, eps=1e-6):
@@ -20,30 +25,34 @@ class TruncatedNormal(torch.distributions.Normal):
 
     def sample(self, clip=None, sample_shape=torch.Size()):
         shape = self._extended_shape(sample_shape)
-        eps = torch.distributions.utils._standard_normal(shape,
-                               dtype=self.loc.dtype,
-                               device=self.loc.device)
+        eps = torch.distributions.utils._standard_normal(shape, dtype=self.loc.dtype, device=self.loc.device)
         eps *= self.scale
         if clip is not None:
             eps = torch.clamp(eps, -clip, clip)
         x = self.loc + eps
         return self._clamp(x)
 
+
 class DRQV2(Algorithm):
-    '''
+    """
     NOTE: DrQv2 implementation is untested and not verified yet.
     Please do not use this implementation for baseline comparisons.
-    '''
+    """
 
-    def __init__(self, env, network_class, dataset_class, 
-                       tau=0.005,
-                       critic_freq=1,
-                       actor_freq=1,
-                       target_freq=1,
-                       init_steps=1000,
-                       std_schedule=(1.0,0.1,500000),
-                       noise_clip=0.3,
-                       **kwargs):
+    def __init__(
+        self,
+        env: gym.Env,
+        network_class: Type[torch.nn.Module],
+        dataset_class: Union[Type[torch.utils.data.IterableDataset], Type[torch.utils.data.Dataset]],
+        tau: float = 0.005,
+        critic_freq: int = 1,
+        actor_freq: int = 1,
+        target_freq: int = 1,
+        init_steps: int = 1000,
+        std_schedule: Tuple[float, float, int] = (1.0, 0.1, 500000),
+        noise_clip: float = 0.3,
+        **kwargs,
+    ):
         super().__init__(env, network_class, dataset_class, **kwargs)
         assert isinstance(self.network, ActorCriticPolicy)
         # Save extra parameters
@@ -61,46 +70,46 @@ class DRQV2(Algorithm):
         self._episode_length = 0
         self._num_ep = 0
 
-    def setup_network(self, network_class, network_kwargs):
-        self.network = network_class(self.observation_space, self.action_space, 
-                                     **network_kwargs).to(self.device)
-        self.target_network = network_class(self.observation_space, self.action_space, 
-                                     **network_kwargs).to(self.device)
+    def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
+        self.network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
+        self.target_network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
         self.target_network.load_state_dict(self.network.state_dict())
         for param in self.target_network.parameters():
             param.requires_grad = False
 
-    def setup_optimizers(self, optim_class, optim_kwargs):
+    def setup_optimizers(self, optim_class: Type[torch.optim.Optimizer], optim_kwargs: Dict) -> None:
         # Default optimizer initialization
-        self.optim['actor'] = optim_class(self.network.actor.parameters(), **optim_kwargs)
+        self.optim["actor"] = optim_class(self.network.actor.parameters(), **optim_kwargs)
         # Update the encoder with the critic.
-        critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())        
-        self.optim['critic'] = optim_class(critic_params, **optim_kwargs)
+        critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())
+        self.optim["critic"] = optim_class(critic_params, **optim_kwargs)
 
-    def _update_critic(self, batch):
+    def _update_critic(self, batch: Dict) -> Dict:
         with torch.no_grad():
-            mu = self.network.actor(batch['next_obs'])
-            std = self._get_std()*torch.ones_like(mu)
+            mu = self.network.actor(batch["next_obs"])
+            std = self._get_std() * torch.ones_like(mu)
             next_action = TruncatedNormal(mu, std).sample(clip=self.noise_clip)
-            target_q1, target_q2 = self.target_network.critic(batch['next_obs'], next_action)
+            target_q1, target_q2 = self.target_network.critic(batch["next_obs"], next_action)
             target_v = torch.min(target_q1, target_q2)
-            target_q = batch['reward'] + batch['discount']*target_v
+            target_q = batch["reward"] + batch["discount"] * target_v
 
-        q1, q2 = self.network.critic(batch['obs'], batch['action'])
+        q1, q2 = self.network.critic(batch["obs"], batch["action"])
         q1_loss = torch.nn.functional.mse_loss(q1, target_q)
         q2_loss = torch.nn.functional.mse_loss(q2, target_q)
         q_loss = q1_loss + q2_loss
-        
-        self.optim['critic'].zero_grad(set_to_none=True)
-        q_loss.backward()
-        self.optim['critic'].step()
 
-        return dict(q1_loss=q1_loss.item(), q2_loss=q2_loss.item(), q_loss=q_loss.item(), target_q=target_q.mean().item())
-    
-    def _update_actor(self, batch):
-        obs = batch['obs'].detach() # Detach the encoder so it isn't updated.
+        self.optim["critic"].zero_grad(set_to_none=True)
+        q_loss.backward()
+        self.optim["critic"].step()
+
+        return dict(
+            q1_loss=q1_loss.item(), q2_loss=q2_loss.item(), q_loss=q_loss.item(), target_q=target_q.mean().item()
+        )
+
+    def _update_actor(self, batch: Dict) -> Dict:
+        obs = batch["obs"].detach()  # Detach the encoder so it isn't updated.
         mu = self.network.actor(obs)
-        std = self._get_std()*torch.ones_like(mu)
+        std = self._get_std() * torch.ones_like(mu)
         dist = TruncatedNormal(mu, std)
         action = dist.sample(clip=self.noise_clip)
         log_prob = dist.log_prob(action).sum(dim=-1)
@@ -109,16 +118,16 @@ class DRQV2(Algorithm):
         q = torch.min(q1, q2)
         actor_loss = -q.mean()
 
-        self.optim['actor'].zero_grad(set_to_none=True)
+        self.optim["actor"].zero_grad(set_to_none=True)
         actor_loss.backward()
-        self.optim['actor'].step()
+        self.optim["actor"].step()
 
         return dict(actor_loss=actor_loss.item(), log_prob=log_prob.mean().item())
 
-    def _train_step(self, batch):
+    def _train_step(self, batch: Dict) -> Dict:
         all_metrics = {}
-        if self.steps == 0: 
-            self.dataset.add(self._current_obs) # Store the initial reset observation!
+        if self.steps == 0:
+            self.dataset.add(self._current_obs)  # Store the initial reset observation!
         if self.steps < self.init_steps:
             action = self.action_space.sample()
         else:
@@ -126,16 +135,16 @@ class DRQV2(Algorithm):
             with torch.no_grad():
                 mu = self.predict(self._current_obs)
                 mu = torch.as_tensor(mu, device=self.device)
-                std = self._get_std()*torch.ones_like(mu)
+                std = self._get_std() * torch.ones_like(mu)
                 action = TruncatedNormal(mu, std).sample(clip=None).cpu().numpy()
             self.train_mode()
-        
+
         next_obs, reward, done, info = self.env.step(action)
         self._episode_length += 1
         self._episode_reward += reward
 
-        if 'discount' in info:
-            discount = info['discount']
+        if "discount" in info:
+            discount = info["discount"]
         elif hasattr(self.env, "_max_episode_steps") and self._episode_length == self.env._max_episode_steps:
             discount = 1.0
         else:
@@ -143,32 +152,32 @@ class DRQV2(Algorithm):
 
         # Store the consequences
         self.dataset.add(next_obs, action, reward, done, discount)
-        
+
         if done:
             self._num_ep += 1
             # update metrics
-            all_metrics['reward'] = self._episode_reward
-            all_metrics['length'] = self._episode_length
-            all_metrics['num_ep'] = self._num_ep
+            all_metrics["reward"] = self._episode_reward
+            all_metrics["length"] = self._episode_length
+            all_metrics["num_ep"] = self._num_ep
             # Reset the environment
             self._current_obs = self.env.reset()
-            self.dataset.add(self._current_obs) # Add the first timestep
+            self.dataset.add(self._current_obs)  # Add the first timestep
             self._episode_length = 0
             self._episode_reward = 0
         else:
             self._current_obs = next_obs
 
-        if self.steps < self.init_steps or not 'obs' in batch:
+        if self.steps < self.init_steps or "obs" not in batch:
             return all_metrics
 
         updating_critic = self.steps % self.critic_freq == 0
         updating_actor = self.steps % self.actor_freq == 0
-            
+
         if updating_actor or updating_critic:
-            batch['obs'] = self.network.encoder(batch['obs'])
+            batch["obs"] = self.network.encoder(batch["obs"])
             with torch.no_grad():
-                batch['next_obs'] = self.network.encoder(batch['next_obs'])
-        
+                batch["next_obs"] = self.network.encoder(batch["next_obs"])
+
         if updating_critic:
             metrics = self._update_critic(batch)
             all_metrics.update(metrics)
@@ -180,15 +189,17 @@ class DRQV2(Algorithm):
         if self.steps % self.target_freq == 0:
             with torch.no_grad():
                 # Only update the critic, don't update the encoder.
-                for param, target_param in zip(self.network.critic.parameters(), self.target_network.critic.parameters()):
+                for param, target_param in zip(
+                    self.network.critic.parameters(), self.target_network.critic.parameters()
+                ):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return all_metrics
 
-    def _get_std(self):
+    def _get_std(self) -> float:
         init, final, duration = self.std_schedule
         mix = np.clip(self.steps / duration, 0.0, 1.0)
         return (1.0 - mix) * init + mix * final
-        
-    def _validation_step(self, batch):
+
+    def _validation_step(self, batch: Dict):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
