@@ -171,7 +171,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             num_b4_wrap = self._capacity - self._idx
             self._add_to_buffer(
                 get_from_batch(obs, 0, num_b4_wrap),
-                get_from_batch(obs, 0, num_b4_wrap),
+                get_from_batch(action, 0, num_b4_wrap),
                 reward[:num_b4_wrap],
                 done[:num_b4_wrap],
                 discount[:num_b4_wrap],
@@ -179,7 +179,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             )
             self._add_to_buffer(
                 get_from_batch(obs, num_b4_wrap, num_to_add),
-                get_from_batch(obs, num_b4_wrap, num_to_add),
+                get_from_batch(action, num_b4_wrap, num_to_add),
                 reward[num_b4_wrap:],
                 done[num_b4_wrap:],
                 discount[num_b4_wrap:],
