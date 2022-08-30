@@ -53,3 +53,7 @@ class NetworkContainer(torch.nn.Module):
         if device is not None:
             network = network.to(device)
         setattr(self, container, network)
+
+
+class ActorCriticPolicy(NetworkContainer):
+    CONTAINERS = ["encoder", "actor", "critic"]
