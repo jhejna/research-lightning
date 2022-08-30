@@ -143,6 +143,12 @@ class DQN(Algorithm):
 
         return all_metrics
 
+    def _predict(self, obs: torch.Tensor) -> torch.Tensor:
+        with torch.no_grad():
+            q = self.network(obs)
+            action = q.argmax(dim=-1)
+            return action
+
     def _validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
 

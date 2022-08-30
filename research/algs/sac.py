@@ -37,6 +37,7 @@ class SAC(Algorithm):
         self.actor_freq = actor_freq
         self.target_freq = target_freq
         self.init_steps = init_steps
+        self.action_range = [float(self.action_space.low.min()), float(self.action_space.high.max())]
 
     @property
     def alpha(self) -> torch.Tensor:
@@ -204,6 +205,16 @@ class SAC(Algorithm):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return all_metrics
+
+    def _predict(self, obs: torch.Tensor, sample: bool = False) -> torch.Tensor:
+        with torch.no_grad():
+            dist = self(obs)
+            if sample:
+                action = dist.sample()
+            else:
+                action = dist.loc
+            action = action.clamp(*self.action_range)
+            return action
 
     def _validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")

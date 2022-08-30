@@ -95,11 +95,6 @@ class DiscreteMLPCritic(nn.Module):
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.q(obs)
 
-    def predict(self, obs: torch.Tensor) -> torch.Tensor:
-        q = self(obs)
-        action = q.argmax(dim=-1)
-        return action
-
 
 class MLPValue(nn.Module):
     def __init__(
@@ -204,7 +199,6 @@ class DiagonalGaussianMLPActor(nn.Module):
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
             if output_gain is not None:
                 self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
-        self.action_range = [float(action_space.low.min()), float(action_space.high.max())]
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         if self.state_dependent_log_std:
@@ -222,12 +216,3 @@ class DiagonalGaussianMLPActor(nn.Module):
 
         dist = dist_class(mu, log_std.exp())
         return dist
-
-    def predict(self, obs: torch.Tensor, sample: bool = False) -> torch.Tensor:
-        dist = self(obs)
-        if sample:
-            action = dist.sample()
-        else:
-            action = dist.loc
-        action = action.clamp(*self.action_range)
-        return action
