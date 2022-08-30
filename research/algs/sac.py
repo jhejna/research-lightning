@@ -208,7 +208,7 @@ class SAC(Algorithm):
 
     def _predict(self, obs: torch.Tensor, sample: bool = False) -> torch.Tensor:
         with torch.no_grad():
-            dist = self(obs)
+            dist = self.network.actor(obs)
             if sample:
                 action = dist.sample()
             else:

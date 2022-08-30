@@ -108,7 +108,7 @@ class RolloutBuffer(torch.utils.data.IterableDataset):
         # in David Silver Lecture 4: https://www.youtube.com/watch?v=PnHCvfgC_ZA
         self._return_buffer = self._advantage_buffer + self._info_buffers["value"]
 
-    def _get(self, idxs: np.npdarray) -> Dict:
+    def _get(self, idxs: np.ndarray) -> Dict:
         if idxs.shape[0] == 1:
             idxs = idxs[0]
 
