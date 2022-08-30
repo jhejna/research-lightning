@@ -30,10 +30,19 @@ class MLPEncoder(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
     ):
         assert len(hidden_layers) > 1, "Must have at least one hidden layer for a shared MLP Extractor"
-        self.mlp = MLP(observation_space.shape[0], hidden_layers[-1], hidden_layers=hidden_layers[:-1], act=act)
+        self.mlp = MLP(
+            observation_space.shape[0],
+            hidden_layers[-1],
+            hidden_layers=hidden_layers[:-1],
+            act=act,
+            dropout=dropout,
+            normalization=normalization,
+        )
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
 
@@ -45,22 +54,33 @@ class ContinuousMLPCritic(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
-        num_q_fns: int = 2,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
+        ensemble_size: int = 2,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
     ):
         super().__init__()
-        self.num_q_fns = num_q_fns
-        if self.num_q_fns > 1:
+        self.ensemble_size = ensemble_size
+        if self.ensemble_size > 1:
             self.q = EnsembleMLP(
                 observation_space.shape[0] + action_space.shape[0],
                 1,
-                ensemble_size=num_q_fns,
+                ensemble_size=ensemble_size,
                 hidden_layers=hidden_layers,
                 act=act,
+                dropout=dropout,
+                normalization=normalization,
             )
         else:
-            self.q = MLP(observation_space.shape[0] + action_space.shape[0], 1, hidden_layers=hidden_layers, act=act)
+            self.q = MLP(
+                observation_space.shape[0] + action_space.shape[0],
+                1,
+                hidden_layers=hidden_layers,
+                act=act,
+                dropout=dropout,
+                normalization=normalization,
+            )
 
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
@@ -70,7 +90,7 @@ class ContinuousMLPCritic(nn.Module):
     def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         x = torch.cat((obs, action), dim=-1)
         q = self.q(x).squeeze(-1)  # Remove the last dim
-        if self.num_q_fns == 1:
+        if self.ensemble_size == 1:
             q = q.unsqueeze(0)  # add in the ensemble dim
         return q
 
@@ -82,11 +102,20 @@ class DiscreteMLPCritic(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
     ):
         super().__init__()
-        self.q = MLP(observation_space.shape[0], action_space.n, hidden_layers=hidden_layers, act=act)
+        self.q = MLP(
+            observation_space.shape[0],
+            action_space.n,
+            hidden_layers=hidden_layers,
+            act=act,
+            dropout=dropout,
+            normalization=normalization,
+        )
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
             if output_gain is not None:
@@ -103,11 +132,20 @@ class MLPValue(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
     ):
         super().__init__()
-        self.mlp = MLP(observation_space.shape[0], 1, hidden_layers=hidden_layers, act=act)
+        self.mlp = MLP(
+            observation_space.shape[0],
+            1,
+            hidden_layers=hidden_layers,
+            act=act,
+            dropout=dropout,
+            normalization=normalization,
+        )
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
             if output_gain is not None:
@@ -124,6 +162,8 @@ class ContinuousMLPActor(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
         output_act: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
@@ -134,6 +174,8 @@ class ContinuousMLPActor(nn.Module):
             action_space.shape[0],
             hidden_layers=hidden_layers,
             act=act,
+            dropout=dropout,
+            normalization=normalization,
             output_act=output_act,
         )
         if ortho_init:
@@ -168,6 +210,8 @@ class DiagonalGaussianMLPActor(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
         log_std_bounds: List[int] = [-5, 2],
@@ -180,20 +224,22 @@ class DiagonalGaussianMLPActor(nn.Module):
             assert log_std_bounds[0] < log_std_bounds[1]
 
         if self.state_dependent_log_std:
-            self.mlp = MLP(
-                observation_space.shape[0],
-                2 * action_space.shape[0],
-                hidden_layers=hidden_layers,
-                act=act,
-                output_act=None,
-            )
+            action_dim = 2 * action_space.shape[0]
         else:
-            self.mlp = MLP(
-                observation_space.shape[0], action_space.shape[0], hidden_layers=hidden_layers, act=act, output_act=None
-            )
+            action_dim = action_space.shape[0]
             self.log_std = nn.Parameter(
                 torch.zeros(action_space.shape[0]), requires_grad=True
             )  # initialize a single parameter vector
+
+        self.mlp = MLP(
+            observation_space.shape[0],
+            action_dim,
+            hidden_layers=hidden_layers,
+            act=act,
+            dropout=dropout,
+            normalization=normalization,
+            output_act=None,
+        )
 
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
