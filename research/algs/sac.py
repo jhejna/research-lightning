@@ -75,7 +75,7 @@ class SAC(Algorithm):
 
         qs = self.network.critic(batch["obs"], batch["action"])
         q_loss = (
-            torch.nn.functional.mse_loss(qs, target_q.expand(qs.shape[0], -1)).mean(dim=-1).sum()
+            torch.nn.functional.mse_loss(qs, target_q.expand(qs.shape[0], -1), reduction="none").mean(dim=-1).sum()
         )  # averages over the ensemble. No for loop!
 
         self.optim["critic"].zero_grad(set_to_none=True)
