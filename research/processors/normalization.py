@@ -1,13 +1,15 @@
 from multiprocessing.sharedctypes import Value
-import torch
-import numpy as np
-import gym
 
-from .base import Processor
+import gym
+import numpy as np
+import torch
+
 from research.utils import utils
 
-class RunningMeanStd(object):
+from .base import Processor
 
+
+class RunningMeanStd(object):
     def __init__(self, shape, dtype, epsilon=1e-6):
         self._mean = np.zeros(shape, dtype=dtype)
         self._m2 = np.ones(shape, dtype=dtype)
@@ -15,11 +17,11 @@ class RunningMeanStd(object):
 
     def update(self, x):
         self.count += 1
-        delta = (x - self._mean)
-        self._mean = self._mean +  delta / self.count
+        delta = x - self._mean
+        self._mean = self._mean + delta / self.count
         # Update the second moment
-        self._m2 = self._m2 + delta*(x - self._mean)
-    
+        self._m2 = self._m2 + delta * (x - self._mean)
+
     @property
     def mean(self):
         return self._mean.astype(np.float32)
@@ -27,18 +29,19 @@ class RunningMeanStd(object):
     @property
     def var(self):
         return (self._m2 / self.count).astype(np.float32)
-    
+
     @property
     def std(self):
         return np.sqrt(self.var)
 
+
 class RunningObservationNormalizer(Processor):
-    '''
-    A running observation normalizer. 
+    """
+    A running observation normalizer.
     Note that there are quite a few speed optimizations that could be performed:
     1. We could cache computation of the variance etc. so it doesn't run everytime.
     2. We could permanently store torch tensors so we don't recompute them and sync to GPU.
-    '''
+    """
 
     def __init__(self, observation_space, action_space, epsilon=1e-7, clip=10):
         super().__init__(observation_space, action_space)
@@ -56,7 +59,7 @@ class RunningObservationNormalizer(Processor):
         else:
             raise ValueError("Invalid input provided.")
         self._updated_stats = True
-    
+
     def forward(self, batch):
         if self._updated_stats:
             # Update the tensors
@@ -67,7 +70,7 @@ class RunningObservationNormalizer(Processor):
             self._updated_stats = False
         # Normalize by the input type
         if isinstance(batch, dict):
-            for k in ('obs', 'next_obs'):
+            for k in ("obs", "next_obs"):
                 if k in batch:
                     batch[k] = self(batch[k])
             return batch
