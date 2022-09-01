@@ -216,10 +216,25 @@ class DiagonalGaussianMLPActor(nn.Module):
         output_gain: Optional[float] = None,
         log_std_bounds: List[int] = [-5, 2],
         state_dependent_log_std: bool = True,
+        squash_normal: bool = True,
+        log_std_tanh: bool = True,
+        output_act: Optional[Type[nn.Module]] = None,
     ):
         super().__init__()
+        # If we have a dict space, concatenate the input dims
+        if isinstance(observation_space, gym.spaces.Dict):
+            assert all([len(space.shape) == 1 for space in observation_space.values()])
+            obs_dim = sum([space.shape[0] for space in observation_space.values()])
+        elif isinstance(observation_space, gym.spaces.Box):
+            assert len(observation_space.shape) == 1
+            obs_dim = observation_space.shape[0]
+        else:
+            raise ValueError("Unsupported observation space type used.")
+
         self.state_dependent_log_std = state_dependent_log_std
         self.log_std_bounds = log_std_bounds
+        self.squash_normal = squash_normal
+        self.log_std_tanh = log_std_tanh
         if log_std_bounds is not None:
             assert log_std_bounds[0] < log_std_bounds[1]
 
@@ -232,13 +247,13 @@ class DiagonalGaussianMLPActor(nn.Module):
             )  # initialize a single parameter vector
 
         self.mlp = MLP(
-            observation_space.shape[0],
+            obs_dim,
             action_dim,
             hidden_layers=hidden_layers,
             act=act,
             dropout=dropout,
             normalization=normalization,
-            output_act=None,
+            output_act=output_act,
         )
 
         if ortho_init:
@@ -253,12 +268,13 @@ class DiagonalGaussianMLPActor(nn.Module):
             mu, log_std = self.mlp(obs), self.log_std
 
         if self.log_std_bounds is not None:
-            log_std = torch.tanh(log_std)
-            log_std_min, log_std_max = self.log_std_bounds
-            log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1)
-            dist_class = SquashedNormal
-        else:
-            dist_class = distributions.Normal
+            if self.log_std_tanh:
+                log_std = torch.tanh(log_std)
+                log_std_min, log_std_max = self.log_std_bounds
+                log_std = log_std_min + 0.5 * (log_std_max - log_std_min) * (log_std + 1)
+            else:
+                log_std = torch.clamp(log_std, *self.log_std_bounds)
 
+        dist_class = SquashedNormal if self.squash_normal else distributions.Normal
         dist = dist_class(mu, log_std.exp())
         return dist
