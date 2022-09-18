@@ -67,7 +67,7 @@ class DQN(Algorithm):
         self.dataset.add(self._current_obs)  # Store the initial reset observation!
 
     def _compute_action(self) -> Any:
-        return self.predict(self._current_obs)
+        return self.predict(dict(obs=self._current_obs))
 
     def _compute_value(self, batch: Any) -> torch.Tensor:
         next_q = self.target_network(batch["next_obs"])
@@ -147,9 +147,9 @@ class DQN(Algorithm):
 
         return all_metrics
 
-    def _predict(self, obs: torch.Tensor) -> torch.Tensor:
+    def _predict(self, batch: Any) -> torch.Tensor:
         with torch.no_grad():
-            q = self.network(obs)
+            q = self.network(batch["obs"])
             action = q.argmax(dim=-1)
             return action
 
@@ -159,6 +159,7 @@ class DQN(Algorithm):
 
 class DoubleDQN(DQN):
     def _compute_value(self, batch: Any) -> torch.Tensor:
+        # TODO: test this implementation, it might be broken due to API updates.
         next_a = self.network.predict(batch["next_obs"])
         next_q = self.target_network(batch["next_obs"])
         next_v = torch.gather(next_q, dim=-1, index=next_a.unsqueeze(-1)).squeeze(-1)

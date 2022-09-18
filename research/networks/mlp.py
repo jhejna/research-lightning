@@ -132,6 +132,7 @@ class MLPValue(nn.Module):
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
         act: Type[nn.Module] = nn.ReLU,
+        output_act: Optional[Type[nn.Module]] = None,
         dropout: float = 0.0,
         normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
@@ -145,6 +146,7 @@ class MLPValue(nn.Module):
             act=act,
             dropout=dropout,
             normalization=normalization,
+            output_act=output_act,
         )
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
@@ -169,6 +171,8 @@ class ContinuousMLPActor(nn.Module):
         output_gain: Optional[float] = None,
     ):
         super().__init__()
+        assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
+
         self.mlp = MLP(
             observation_space.shape[0],
             action_space.shape[0],
@@ -222,21 +226,16 @@ class DiagonalGaussianMLPActor(nn.Module):
     ):
         super().__init__()
         # If we have a dict space, concatenate the input dims
-        if isinstance(observation_space, gym.spaces.Dict):
-            assert all([len(space.shape) == 1 for space in observation_space.values()])
-            obs_dim = sum([space.shape[0] for space in observation_space.values()])
-        elif isinstance(observation_space, gym.spaces.Box):
-            assert len(observation_space.shape) == 1
-            obs_dim = observation_space.shape[0]
-        else:
-            raise ValueError("Unsupported observation space type used.")
+        assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
 
         self.state_dependent_log_std = state_dependent_log_std
         self.log_std_bounds = log_std_bounds
         self.squash_normal = squash_normal
         self.log_std_tanh = log_std_tanh
-        if log_std_bounds is not None:
-            assert log_std_bounds[0] < log_std_bounds[1]
+
+        # Perform checks to make sure arguments are consistent
+        assert log_std_bounds is None or log_std_bounds[0] < log_std_bounds[1], "invalid log_std bounds"
+        assert not (output_act is not None and squash_normal), "Cannot use output act and squash normal"
 
         if self.state_dependent_log_std:
             action_dim = 2 * action_space.shape[0]
@@ -247,7 +246,7 @@ class DiagonalGaussianMLPActor(nn.Module):
             )  # initialize a single parameter vector
 
         self.mlp = MLP(
-            obs_dim,
+            observation_space.shape[0],
             action_dim,
             hidden_layers=hidden_layers,
             act=act,
@@ -266,7 +265,6 @@ class DiagonalGaussianMLPActor(nn.Module):
             mu, log_std = self.mlp(obs).chunk(2, dim=-1)
         else:
             mu, log_std = self.mlp(obs), self.log_std
-
         if self.log_std_bounds is not None:
             if self.log_std_tanh:
                 log_std = torch.tanh(log_std)

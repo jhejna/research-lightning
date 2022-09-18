@@ -180,6 +180,16 @@ class PPO(Algorithm):
     def _validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
 
+    def _predict(self, batch: Any, sample=False) -> torch.Tensor:
+        with torch.no_grad():
+            latent = self.network.encoder(batch["obs"])
+            dist = self.network.actor(latent)
+            if sample:
+                action = dist.sample()
+            else:
+                action = dist.loc
+        return action
+
 
 class AdaptiveKLPPO(PPO):
     def __init__(self, *args, target_kl: float = 0.025, kl_window: Optional[int] = None, **kwargs):

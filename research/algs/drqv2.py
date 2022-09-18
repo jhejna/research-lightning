@@ -137,7 +137,7 @@ class DRQV2(Algorithm):
         else:
             self.eval_mode()
             with torch.no_grad():
-                mu = self.predict(self._current_obs)
+                mu = self.predict(dict(obs=self._current_obs))
                 mu = torch.as_tensor(mu, device=self.device)
                 std = self._get_std() * torch.ones_like(mu)
                 action = TruncatedNormal(mu, std).sample(clip=None).cpu().numpy()
@@ -207,3 +207,8 @@ class DRQV2(Algorithm):
 
     def _validation_step(self, batch: Dict):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
+
+    def _predict(self, batch: Any) -> torch.Tensor:
+        with torch.no_grad():
+            z = self.network.encoder(batch["obs"])
+            return self.network.actor(z)

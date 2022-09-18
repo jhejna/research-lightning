@@ -107,7 +107,7 @@ class TD3(Algorithm):
         else:
             self.eval_mode()
             with torch.no_grad():
-                action = self.predict(self._current_obs)
+                action = self.predict(dict(obs=self._current_obs))
             action += self.policy_noise * np.random.randn(action.shape[0])
             self.train_mode()
         action = np.clip(action, self.action_space.low, self.action_space.high)
@@ -191,3 +191,8 @@ class TD3(Algorithm):
 
     def _validation_step(self, batch: Any) -> None:
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
+
+    def _predict(self, batch: Any) -> torch.Tensor:
+        with torch.no_grad():
+            z = self.network.encoder(batch["obs"])
+            return self.network.actor(z)

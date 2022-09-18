@@ -123,7 +123,7 @@ class SAC(Algorithm):
         else:
             self.eval_mode()
             with torch.no_grad():
-                action = self.predict(self._current_obs, sample=True)
+                action = self.predict(dict(obs=self._current_obs), sample=True)
             self.train_mode()
         action = np.clip(action, self.action_space.low, self.action_space.high)
 
@@ -210,9 +210,10 @@ class SAC(Algorithm):
 
         return all_metrics
 
-    def _predict(self, obs: torch.Tensor, sample: bool = False) -> torch.Tensor:
+    def _predict(self, batch: Any, sample: bool = False) -> torch.Tensor:
         with torch.no_grad():
-            dist = self.network.actor(obs)
+            z = self.network.encoder(batch["obs"])
+            dist = self.network.actor(z)
             if sample:
                 action = dist.sample()
             else:

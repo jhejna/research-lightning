@@ -50,14 +50,8 @@ class RunningObservationNormalizer(Processor):
         self._updated_stats = True
         self.clip = clip
 
-    def update(self, batch):
-        if isinstance(batch, np.ndarray):
-            self.rms.update(batch)
-        elif isinstance(batch, dict):
-            assert "obs" in batch, "Called ObsNormalizer with batch that did not contain 'obs' key."
-            self.rms.update(batch["obs"])
-        else:
-            raise ValueError("Invalid input provided.")
+    def update(self, obs: np.ndarray) -> None:
+        self.rms.update(obs)
         self._updated_stats = True
 
     def forward(self, batch):
