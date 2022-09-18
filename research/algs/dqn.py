@@ -48,8 +48,12 @@ class DQN(Algorithm):
             raise ValueError("Invalid loss specification")
 
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
-        self.network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
-        self.target_network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
+        self.network = network_class(
+            self.processor.observation_space, self.processor.action_space, **network_kwargs
+        ).to(self.device)
+        self.target_network = network_class(
+            self.processor.observation_space, self.processor.action_space, **network_kwargs
+        ).to(self.device)
         self.target_network.load_state_dict(self.network.state_dict())
         for param in self.target_network.parameters():
             param.requires_grad = False
