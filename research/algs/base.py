@@ -118,7 +118,9 @@ class Algorithm(ABC):
             self.processor = self.processor.to(self.device)
 
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
-        self.network = network_class(self.observation_space, self.action_space, **network_kwargs).to(self.device)
+        self.network = network_class(
+            self.processor.observation_space, self.processor.action_space, **network_kwargs
+        ).to(self.device)
 
     def setup_optimizers(self, optim_class: Type[torch.optim.Optimizer], optim_kwargs: Dict) -> None:
         # Default optimizer initialization
@@ -293,7 +295,7 @@ class Algorithm(ABC):
         current_step = 0
         train_metric_lists = defaultdict(list)
         best_validation_metric = -1 * float("inf") if loss_metric in MAX_VALID_METRICS else float("inf")
-        last_train_log = 0
+        last_train_log = -log_freq  # Ensure that we log on the first step
         last_validation_log = -eval_freq  # Ensure that we log on the first step
 
         # Setup training
@@ -304,7 +306,7 @@ class Algorithm(ABC):
         start_time = current_time = time.time()
         profiling_metric_lists = defaultdict(list)
 
-        while current_step < total_steps:
+        while current_step <= total_steps:
             for batch in dataloader:
                 # Profiling
                 if profile_freq > 0 and self._steps % profile_freq == 0:
@@ -328,9 +330,6 @@ class Algorithm(ABC):
                 if profile_freq > 0 and self._steps % profile_freq == 0:
                     stop_time = time.time()
                     profiling_metric_lists["train_step"].append(stop_time - current_time)
-
-                # Increment the number of training steps.
-                self._steps += 1
 
                 # Update the schedulers
                 for scheduler in schedulers.values():
@@ -408,12 +407,12 @@ class Algorithm(ABC):
                     self.save(path, "final_model")  # Also save the final model every eval period.
                     self.train_mode()
 
+                # Increment the number of steps
+                self._steps += 1
+
                 # Profiling
                 if profile_freq > 0 and self._steps % profile_freq == 0:
                     current_time = time.time()
-
-                if current_step >= total_steps:
-                    break
 
             self._epochs += 1
         logger.close()
