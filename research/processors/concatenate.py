@@ -21,17 +21,23 @@ class ConcatenateProcessor(Processor):
 
     @property
     def observation_space(self):
-        # Concatenate the spaces on the last dim
-        low = np.concatenate([space.low for space in self._observation_space.values()], axis=-1)
-        high = np.concatenate([space.high for space in self._observation_space.values()], axis=-1)
-        return gym.spaces.Box(low=low, high=high, dtype=np.float32)  # force float32 conversion
+        if self.concat_obs:
+            # Concatenate the spaces on the last dim
+            low = np.concatenate([space.low for space in self._observation_space.values()], axis=-1)
+            high = np.concatenate([space.high for space in self._observation_space.values()], axis=-1)
+            return gym.spaces.Box(low=low, high=high, dtype=np.float32)  # force float32 conversion
+        else:
+            return self._observation_space
 
     @property
     def action_space(self):
-        # Concatenate the spaces on the last dim
-        low = np.concatenate([space.low for space in self._action_space.values()], axis=-1)
-        high = np.concatenate([space.high for space in self._action_space.values()], axis=-1)
-        return gym.spaces.Box(low=low, high=high, dtype=np.float32)  # force float32 conversion
+        if self.concat_action:
+            # Concatenate the spaces on the last dim
+            low = np.concatenate([space.low for space in self._action_space.values()], axis=-1)
+            high = np.concatenate([space.high for space in self._action_space.values()], axis=-1)
+            return gym.spaces.Box(low=low, high=high, dtype=np.float32)  # force float32 conversion
+        else:
+            return self._action_space
 
     def forward(self, batch: Dict) -> Dict:
         batch = {k: v for k, v in batch.items()}  # Perform a shallow copy of the batch
