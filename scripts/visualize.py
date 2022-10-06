@@ -29,8 +29,6 @@ if __name__ == "__main__":
 
     assert args.path.endswith(".pt"), "Must provide a model checkpoint"
     config = Config.load(os.path.dirname(args.path))
-
-    config["train_kwargs"]["eval_ep"] = -1  # Avoid loading the eval env
     config["checkpoint"] = None  # Set checkpoint to None
 
     # Overrides
