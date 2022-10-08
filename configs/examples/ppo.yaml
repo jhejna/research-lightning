@@ -50,6 +50,7 @@ dataset_kwargs:
 processor: RunningObservationNormalizer
 processor_kwargs:
   clip: 10
+  explicit_update: True
 
 train_kwargs: # Arguments given to Algorithm.train
   total_steps: 1000000 # The total number of steps to train

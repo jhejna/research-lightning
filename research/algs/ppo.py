@@ -47,7 +47,7 @@ class PPO(Algorithm):
         self.normalize_returns = normalize_returns
         self.reward_clip = reward_clip
         if self.normalize_returns:
-            self.return_rms = RunningMeanStd(shape=(), dtype=np.float64)
+            self.return_rms = RunningMeanStd(shape=())
 
         # Losses
         self.value_criterion = torch.nn.MSELoss()
@@ -62,13 +62,14 @@ class PPO(Algorithm):
         ep_reward, ep_length, ep_return, ep_success = 0, 0, 0, False
 
         obs = self.env.reset()
-        if isinstance(self.processor, RunningObservationNormalizer):
-            self.processor.update(obs)
         self.dataset.add(obs=obs)  # Add the first observation
         while not self.dataset.is_full:
             with torch.no_grad():
-                batch = self._format_batch(utils.unsqueeze(obs, 0))  # Preprocess obs
-                latent = self.network.encoder(batch)
+                obs = utils.unsqueeze(utils.to_tensor(obs), 0)
+                if isinstance(self.processor, RunningObservationNormalizer):
+                    self.processor.update(obs)
+                batch = self._format_batch(dict(obs=obs))  # Preprocess obs
+                latent = self.network.encoder(batch["obs"])
                 dist = self.network.actor(latent)
                 # Collect relevant information
                 action = dist.sample()
@@ -84,15 +85,13 @@ class PPO(Algorithm):
                 clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
 
             obs, reward, done, info = self.env.step(clipped_action)
-            if isinstance(self.processor, RunningObservationNormalizer):
-                self.processor.update(obs)
 
             ep_reward += reward
             ep_length += 1
             ep_return = self.dataset.discount * ep_return + reward
             if self.normalize_returns:
                 self.return_rms.update(ep_return)
-                reward = reward / self.return_rms.std
+                reward = reward / self.return_rms.std.numpy()
                 if self.reward_clip is not None:
                     reward = np.clip(reward, -self.reward_clip, self.reward_clip)
 
@@ -107,8 +106,11 @@ class PPO(Algorithm):
                 ep_reward, ep_length, ep_return, ep_success = 0, 0, 0, False
                 # If its done, we need to update the observation as well as the terminal reward
                 with torch.no_grad():
-                    batch = self._format_batch(utils.unsqueeze(obs, 0))  # Preprocess obs
-                    terminal_value = self.network.critic(self.network.encoder(batch))
+                    obs = utils.unsqueeze(utils.to_tensor(obs), 0)
+                    if isinstance(self.processor, RunningObservationNormalizer):
+                        self.processor.update(obs)
+                    batch = self._format_batch(dict(obs=obs))  # Preprocess obs
+                    terminal_value = self.network.critic(self.network.encoder(batch["obs"]))
                     terminal_value = utils.to_np(utils.get_from_batch(terminal_value, 0))
                 reward += self.dataset.discount * terminal_value
                 obs = self.env.reset()
@@ -141,6 +143,7 @@ class PPO(Algorithm):
         if self.dataset.last_batch and self.epochs % self.num_epochs == 0:
             # On the last batch of the epoch recollect data.
             metrics.update(self._collect_rollouts())
+            return metrics  # Return immediatly so we don't do a gradient step on old data.
 
         # Run the policy to predict the values, log probs, and entropies
         latent = self.network.encoder(batch["obs"])

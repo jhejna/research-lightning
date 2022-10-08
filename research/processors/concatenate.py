@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, List, Optional
 
 import gym
 import numpy as np
@@ -47,4 +47,42 @@ class ConcatenateProcessor(Processor):
             batch["obs"] = torch.cat([batch["obs"][k] for k in self.obs_order], dim=-1)
             if "next_obs" in batch:
                 batch["next_obs"] = torch.cat([batch["next_obs"][k] for k in self.obs_order], dim=-1)
+        return batch
+
+
+class SelectProcessor(Processor):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        obs_include: Optional[List[str]] = None,
+        obs_exclude: Optional[List[str]] = None,
+        action_include: Optional[List[str]] = None,
+        action_exclude: Optional[List[str]] = None,
+    ):
+        super().__init__(observation_space, action_space)
+        assert not (action_include is not None and action_exclude is not None)
+        assert not (obs_include is not None and obs_exclude is not None)
+
+        if action_include is not None:
+            self.action_keys = [k for k in action_space.keys() if k in action_include]
+        elif action_exclude is not None:
+            self.action_keys = [k for k in action_space.keys() if k not in action_exclude]
+        else:
+            self.action_keys = None
+
+        if obs_include is not None:
+            self.obs_keys = [k for k in observation_space.keys() if k in obs_include]
+        elif obs_exclude is not None:
+            self.obs_keys = [k for k in observation_space.keys() if k not in obs_exclude]
+        else:
+            self.obs_keys = None
+
+    def forward(self, batch: Dict) -> Dict:
+        if "action" in batch and self.action_keys is not None:
+            batch["action"] = {k: batch["action"][k] for k in self.action_keys}
+        if "obs" in batch and self.obs_keys is not None:
+            batch["obs"] = {k: batch["obs"][k] for k in self.obs_keys}
+            if "next_obs" in batch:
+                batch["obs"] = {k: batch["obs"][k] for k in self.obs_keys}
         return batch
