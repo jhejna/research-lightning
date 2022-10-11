@@ -93,7 +93,11 @@ class RunningObservationNormalizer(Processor):
         return False
 
     def update(self, obs: Union[torch.Tensor, Dict]) -> None:
-        self.rms.update(obs)
+        if isinstance(obs, dict):
+            for k in self.rms.keys():
+                self.rms[k].update(obs[k])
+        else:
+            self.rms.update(obs)
         self._updated_stats = True
 
     def normalize(self, obs: Union[torch.Tensor, Dict]) -> Union[torch.Tensor, Dict]:
@@ -108,10 +112,11 @@ class RunningObservationNormalizer(Processor):
             self._updated_stats = False
         # Normalize the observation
         if isinstance(obs, dict):
-            for k in obs.keys():
-                obs[k] = (obs[k] - self._mean[k]) / self._std[k]
-                if self.clip is not None:
+            obs = {k: (obs[k] - self._mean[k]) / self._std[k] for k in obs.keys()}
+            if self.clip is not None:
+                for k in obs.keys():
                     obs[k] = torch.clamp(obs[k], -self.clip, self.clip)
+            return obs
         elif isinstance(obs, torch.Tensor):
             obs = (obs - self._mean) / self._std
             return obs if self.clip is None else torch.clamp(obs, -self.clip, self.clip)
@@ -125,5 +130,5 @@ class RunningObservationNormalizer(Processor):
         # Normalize
         batch["obs"] = self.normalize(batch["obs"])
         if "next_obs" in batch:
-            batch["next_obs"] = self.normalize["next_obs"]
+            batch["next_obs"] = self.normalize(batch["next_obs"])
         return batch

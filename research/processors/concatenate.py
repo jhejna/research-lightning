@@ -70,6 +70,8 @@ class SelectProcessor(Processor):
             self.action_keys = [k for k in action_space.keys() if k not in action_exclude]
         else:
             self.action_keys = None
+        if self.action_keys is not None:
+            self._action_space = gym.spaces.Dict({k: v for k, v in self._action_space.items() if k in self.action_keys})
 
         if obs_include is not None:
             self.obs_keys = [k for k in observation_space.keys() if k in obs_include]
@@ -77,6 +79,10 @@ class SelectProcessor(Processor):
             self.obs_keys = [k for k in observation_space.keys() if k not in obs_exclude]
         else:
             self.obs_keys = None
+        if self.obs_keys is not None:
+            self._observation_space = gym.spaces.Dict(
+                {k: v for k, v in self._observation_space.items() if k in self.obs_keys}
+            )
 
     def forward(self, batch: Dict) -> Dict:
         if "action" in batch and self.action_keys is not None:
@@ -84,5 +90,5 @@ class SelectProcessor(Processor):
         if "obs" in batch and self.obs_keys is not None:
             batch["obs"] = {k: batch["obs"][k] for k in self.obs_keys}
             if "next_obs" in batch:
-                batch["obs"] = {k: batch["obs"][k] for k in self.obs_keys}
+                batch["next_obs"] = {k: batch["next_obs"][k] for k in self.obs_keys}
         return batch
