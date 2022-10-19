@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, List, Union
 
 import gym
 import numpy as np
@@ -75,11 +75,19 @@ class RunningObservationNormalizer(Processor):
         epsilon: float = 1e-7,
         clip: float = 10,
         explicit_update: bool = False,
+        paired_keys: List[str] = [],
     ) -> None:
         super().__init__(observation_space, action_space)
         if isinstance(observation_space, gym.spaces.Dict):
             assert all([isinstance(space, gym.spaces.Box) for space in observation_space.values()])
-            self.rms = {k: RunningMeanStd(space.shape, epsilon=epsilon) for k, space in observation_space.items()}
+            self.rms = {
+                k: RunningMeanStd(space.shape, epsilon=epsilon)
+                for k, space in observation_space.items()
+                if k not in paired_keys
+            }
+            if len(paired_keys) > 0:
+                self.rms["paired"] = RunningMeanStd(observation_space[paired_keys[0]].shape, epsilon=epsilon)
+            self.paired_keys = set(paired_keys)
         elif isinstance(observation_space, gym.spaces.Box):
             self.rms = RunningMeanStd(observation_space.shape, epsilon=epsilon)
         else:
@@ -92,10 +100,16 @@ class RunningObservationNormalizer(Processor):
     def supports_gpu(self):
         return False
 
+    def _get_key(self, k):
+        if k in self.paired_keys:
+            return "paired"
+        else:
+            return k
+
     def update(self, obs: Union[torch.Tensor, Dict]) -> None:
         if isinstance(obs, dict):
-            for k in self.rms.keys():
-                self.rms[k].update(obs[k])
+            for k in obs.keys():
+                self.rms[self._get_key(k)].update(obs[k])
         else:
             self.rms.update(obs)
         self._updated_stats = True
@@ -112,7 +126,7 @@ class RunningObservationNormalizer(Processor):
             self._updated_stats = False
         # Normalize the observation
         if isinstance(obs, dict):
-            obs = {k: (obs[k] - self._mean[k]) / self._std[k] for k in obs.keys()}
+            obs = {k: (obs[k] - self._mean[self._get_key(k)]) / self._std[self._get_key(k)] for k in obs.keys()}
             if self.clip is not None:
                 for k in obs.keys():
                     obs[k] = torch.clamp(obs[k], -self.clip, self.clip)
@@ -128,7 +142,7 @@ class RunningObservationNormalizer(Processor):
         if not self.explicit_update and self.training and "obs" in batch:
             self.update(batch["obs"])
         # Normalize
-        batch["obs"] = self.normalize(batch["obs"])
-        if "next_obs" in batch:
-            batch["next_obs"] = self.normalize(batch["next_obs"])
+        for k in ("obs", "next_obs", "init_obs"):
+            if k in batch:
+                batch[k] = self.normalize(batch[k])
         return batch
