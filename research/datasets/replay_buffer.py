@@ -432,10 +432,6 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                     self._fetch()
                     self._samples_since_last_load = 0
 
-    """
-    OLD LOGIC FOR SAMPLING, WE MAY NEED TO CHANGE FOR BETTER HINDSIGHT AND MASK SUPPORT
-    """
-
     def _get_one_idx(self, stack: int, pad: int) -> Union[int, np.ndarray]:
         # Add 1 for the first dummy transition
         idx = np.random.randint(0, self._size - self.nstep * stack) + 1
@@ -457,7 +453,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         )  # Compute along the done axis, not the index axis.
 
         valid_idxs = idxs[valid == True]  # grab only the idxs that are still valid.
-        if len(valid_idxs) < batch_size and depth < 100:  # try a max of 100 times
+        if len(valid_idxs) < batch_size and depth < 20:  # try a max of 20 times
             print(
                 "[research ReplayBuffer] Buffer Sampler did not recieve batch_size number of valid indices. Consider"
                 " increasing sample_multiplier."
@@ -550,13 +546,17 @@ class HindsightReplayBuffer(ReplayBuffer):
         assert isinstance(self.observation_space, gym.spaces.Dict), "HER Replay Buffer depends on Dict Spaces."
 
     def _extract_markers(self):
+        # Write done at the idx position and the end of the buffer.
+        idx_done, size_done = self._done_buffer[self._idx], self._done_buffer[self._size - 1]
+        self._done_buffer[self._idx - 1] = True  # mark true if index is before size
+        self._done_buffer[self._size - 1] = True
         (self._ends,) = np.where(self._done_buffer[: self._size])
-        if len(self._ends) == 0:
-            self._ends = np.array([self._size])
-        else:
-            self._ends = np.concatenate((self._ends, [self._size]))
         self._starts = np.concatenate(([0], self._ends[:-1] + 1))
+        # Clip the ends if they are at the same point
+        if len(self._ends) > 0 and self._starts[-1] == self._ends[-1]:
+            self._starts, self._ends = self._starts[:-1], self._ends[:-1]
         self._lengths = self._ends - self._starts + 1
+        self._done_buffer[self._idx - 1], self._done_buffer[self._size - 1] = idx_done, size_done
 
     def _alloc(self):
         super()._alloc()
@@ -590,15 +590,17 @@ class HindsightReplayBuffer(ReplayBuffer):
         ep_idxs = np.random.randint(0, len(self._starts), size=int(self.sample_multiplier * batch_size))
         sample_limit = self._lengths[ep_idxs] - self.nstep * (stack - pad)
         valid_idxs = sample_limit > 0
-        if len(valid_idxs) < batch_size and depth < 100:
+        ep_idxs = ep_idxs[valid_idxs]
+        sample_limit = sample_limit[valid_idxs]
+        if len(ep_idxs) < batch_size and depth < 20:
             print(
                 "[research ReplayBuffer] Buffer Sampler did not recieve batch_size number of valid indices. Consider"
                 " increasing sample_multiplier."
             )
             return self._get_many_idxs(batch_size, stack, pad, depth=depth + 1)
         # Get all the valid samples
-        ep_idxs = ep_idxs[valid_idxs][:batch_size]
-        sample_limit = sample_limit[valid_idxs][:batch_size]
+        ep_idxs = ep_idxs[:batch_size]
+        sample_limit = sample_limit[:batch_size]
         pos = np.random.randint(0, sample_limit)
         idxs = self._starts[ep_idxs] + pos
         if stack > 1:
@@ -607,7 +609,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         return ep_idxs, idxs
 
     def sample(self, batch_size: Optional[int] = None, stack: int = 1, pad: int = 0):
-        if len(self._lengths) < 2:  # Must have at least one completed episode
+        if len(self._ends) == 0 or self._size <= self.nstep * stack + 2:  # Must have at least one completed episode
             return {}
 
         if batch_size > 1:
@@ -627,7 +629,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         kwargs = get_from_batch(self._kwarg_buffers, next_obs_idxs)
         desired = obs[self.goal_key].copy()  # Get the designed goal
         horizon = -np.ones_like(idxs, dtype=np.int)
-        her_idxs = np.where(np.random.uniform(size=batch_size) < self.relabel_fraction)
+        her_idxs = np.where(np.random.uniform(size=idxs.shape) < self.relabel_fraction)
 
         if self.strategy == "last":
             goal_idxs = self._ends[ep_idxs[her_idxs]]
