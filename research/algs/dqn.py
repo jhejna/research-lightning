@@ -64,7 +64,6 @@ class DQN(Algorithm):
         self._episode_reward = 0
         self._episode_length = 0
         self._num_ep = 0
-        self.dataset.add(self._current_obs)  # Store the initial reset observation!
 
     def _compute_action(self) -> Any:
         return self.predict(dict(obs=self._current_obs))

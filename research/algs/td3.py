@@ -151,7 +151,6 @@ class TD3(Algorithm):
         self._episode_length = 0
         self._num_ep = 0
         self._env_steps = 0
-        self.dataset.add(self._current_obs)  # Store the initial reset observation!
 
     def _train_step(self, batch: Dict) -> Dict:
         all_metrics = {}
@@ -161,7 +160,7 @@ class TD3(Algorithm):
             metrics = self._step_env()
             all_metrics.update(metrics)
             if self._env_steps < self.init_steps:
-                return all_metrics  # return here.
+                return all_metrics  # like in original TD3 implementation don't start training until after init data
 
         if "obs" not in batch:
             return all_metrics

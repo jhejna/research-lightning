@@ -1,6 +1,5 @@
 import collections
 import itertools
-from re import L
 from typing import Any, Dict, Optional
 
 import gym

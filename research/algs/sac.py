@@ -165,7 +165,6 @@ class SAC(Algorithm):
         self._episode_length = 0
         self._num_ep = 0
         self._env_steps = 0
-        self.dataset.add(self._current_obs)  # Store the initial reset observation!
 
     def _train_step(self, batch: Dict) -> Dict:
         all_metrics = {}
