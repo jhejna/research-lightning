@@ -44,6 +44,22 @@ def to_np(batch: Any) -> Any:
     return batch
 
 
+def remove_float64(batch: Any):
+    if isinstance(batch, dict):
+        batch = {k: remove_float64(v) for k, v in batch.items()}
+    elif isinstance(batch, list) or isinstance(batch, tuple):
+        batch = [remove_float64(v) for v in batch]
+    elif isinstance(batch, np.ndarray):
+        if batch.dtype == np.float64:
+            batch = batch.astype(np.float32)
+    elif isinstance(batch, torch.Tensor):
+        if batch.dtype == torch.double:
+            batch = batch.float()
+    else:
+        raise ValueError("Unsupported type passed to `remove_float64`")
+    return batch
+
+
 def unsqueeze(batch: Any, dim: int) -> Any:
     if isinstance(batch, dict):
         batch = {k: unsqueeze(v, dim) for k, v in batch.items()}

@@ -41,6 +41,10 @@ def save_data(data: Dict, path: str) -> None:
             elif isinstance(first_value, bool):
                 dtype = np.bool_
             data[k] = np.array(data[k], dtype=dtype)
+        else:
+            # Convert away float32
+            if isinstance(data[k][0], np.float64):
+                data[k] = data[k].astype(np.float32)
 
     with io.BytesIO() as bs:
         np.savez_compressed(bs, **data)
@@ -223,6 +227,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             self._kwarg_buffers = kwargs
             # Set the size to be the shape of the reward buffer
             self._size = self._reward_buffer.shape[0]
+            self._idx = self._size
 
     def add(
         self,
@@ -356,16 +361,17 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
     def __del__(self):
         if not self.cleanup:
             return
-        paths = [os.path.join(self.storage_path, f) for f in os.listdir(self.storage_path)]
-        for path in paths:
+        if hasattr(self, "storage_path"):
+            paths = [os.path.join(self.storage_path, f) for f in os.listdir(self.storage_path)]
+            for path in paths:
+                try:
+                    os.remove(path)
+                except:
+                    pass
             try:
-                os.remove(path)
+                os.rmdir(self.storage_path)
             except:
                 pass
-        try:
-            os.rmdir(self.storage_path)
-        except:
-            pass
 
     def _fetch(self) -> None:
         """
@@ -539,7 +545,7 @@ class HindsightReplayBuffer(ReplayBuffer):
 
     def _extract_markers(self):
         # Write done at the idx position and the end of the buffer.
-        idx_done, size_done = self._done_buffer[self._idx], self._done_buffer[self._size - 1]
+        idx_done, size_done = self._done_buffer[self._idx - 1], self._done_buffer[self._size - 1]
         self._done_buffer[self._idx - 1] = True  # mark true if index is before size
         self._done_buffer[self._size - 1] = True
         (self._ends,) = np.where(self._done_buffer[: self._size])
@@ -593,7 +599,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         # Get all the valid samples
         ep_idxs = ep_idxs[:batch_size]
         sample_limit = sample_limit[:batch_size]
-        pos = np.random.randint(0, sample_limit)
+        pos = np.random.randint(0, sample_limit) + 1  # Can't sample the first.
         idxs = self._starts[ep_idxs] + pos
         if stack > 1:
             stack_idxs = np.arange(stack) * self.nstep
