@@ -508,14 +508,6 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         return batch
 
 
-def negative_fetch_sparse(achieved, desired, info=None):
-    # Vectorized reward function.
-    # Returns -1 we are not at the goal, and zero otherwise
-    assert achieved.shape == desired.shape
-    d = np.linalg.norm(achieved - desired, axis=-1)
-    return -(d > 0.05).astype(np.float32)
-
-
 class HindsightReplayBuffer(ReplayBuffer):
     """
     Modify the sample method of the ReplayBuffer to support hindsight sampling
@@ -524,7 +516,7 @@ class HindsightReplayBuffer(ReplayBuffer):
     def __init__(
         self,
         *args,
-        reward_fn: Optional[Callable] = negative_fetch_sparse,
+        reward_fn: Optional[Callable] = None,
         discount_fn: Optional[Callable] = None,
         goal_key: str = "desired_goal",
         achieved_key: str = "achieved_goal",
@@ -628,7 +620,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         action = get_from_batch(self._action_buffer, idxs)
         kwargs = get_from_batch(self._kwarg_buffers, next_obs_idxs)
         desired = obs[self.goal_key].copy()  # Get the designed goal
-        horizon = -np.ones_like(idxs, dtype=np.int)
+        horizon = -100 * np.ones_like(idxs, dtype=np.int)
         her_idxs = np.where(np.random.uniform(size=idxs.shape) < self.relabel_fraction)
 
         if self.strategy == "last":
