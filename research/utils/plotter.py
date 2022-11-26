@@ -1,4 +1,3 @@
-import argparse
 import os
 from typing import Dict, List, Optional, Union
 
@@ -73,7 +72,7 @@ def create_plot(
 
     # Setup the color map
     if color_map is None:
-        color_map = {labels[i]: i for i in range(len(labels))}
+        color_map = {labels[i]: i % len(sns.color_palette()) for i in range(len(labels))}
     for k in color_map.keys():
         if isinstance(color_map[k], int):
             color_map[k] = sns.color_palette()[color_map[k]]
