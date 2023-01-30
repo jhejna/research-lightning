@@ -24,7 +24,6 @@ from research.utils.utils import (
 def save_data(data: Dict, path: str) -> None:
     # Perform checks to make sure everything needed is in the data object
     assert all([k in data for k in ("obs", "action", "reward", "done", "discount")])
-    assert all([len(data[k]) == len(data["reward"]) for k in ("done", "discount")])
     # Flatten everything for saving as an np array
     data = flatten_dict(data)
     # Format everything into numpy in case it was saved as a list
@@ -41,10 +40,9 @@ def save_data(data: Dict, path: str) -> None:
             elif isinstance(first_value, bool):
                 dtype = np.bool_
             data[k] = np.array(data[k], dtype=dtype)
-        else:
-            # Convert away float32
-            if isinstance(data[k][0], np.float64):
-                data[k] = data[k].astype(np.float32)
+
+    length = len(data["reward"])
+    assert all([len(data[k]) == length for k in data.keys()])
 
     with io.BytesIO() as bs:
         np.savez_compressed(bs, **data)
@@ -81,6 +79,19 @@ def add_to_ep(d: Dict, key: str, value: Any, extend: bool = False) -> None:
             d[key].extend(value)
         else:
             d[key].append(value)
+
+
+def add_dummy_transition(d: Dict, length: int):
+    # Helper method to add the dummy transition if it wasn't already
+    for k in d.keys():
+        if isinstance(d[k], dict):
+            add_dummy_transition(d[k], length)
+        elif isinstance(d[k], list):
+            assert len(d[k]) == length or len(d[k]) == length - 1
+            if len(d[k]) == length - 1:
+                d[k].insert(0, d[k][0])  # Duplicate the first item.
+        else:
+            raise ValueError("Invalid value passed to pad_ep")
 
 
 class ReplayBuffer(torch.utils.data.IterableDataset):
@@ -178,17 +189,23 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         num_workers = 1 if worker_info is None else worker_info.num_workers
         worker_id = 0 if worker_info is None else worker_info.id
 
-        ep_filenames = sorted([os.path.join(self.path, f) for f in os.listdir(self.path)], reverse=True)
+        ep_filenames = sorted(
+            [os.path.join(self.path, f) for f in os.listdir(self.path) if f.endswith(".npz")], reverse=True
+        )
+
+        if num_workers > 1 and len(ep_filenames) == 1:
+            print(
+                "[ReplayBuffer] Warning: using multiple workers but single replay file. Reduce memory usage by sharding"
+                " data with `save` instead of `save_flat`."
+            )
+
         for ep_filename in ep_filenames:
-            ep_idx = int(os.path.splitext(ep_filename)[0].split("_")[2])
-            if ep_idx % num_workers != worker_id:
+            ep_idx, _ = [int(x) for x in os.path.splitext(ep_filename)[0].split("_")[-2:]]
+            # Spread loaded data across workers if we have multiple workers and files.
+            if ep_idx % num_workers != worker_id and len(ep_filenames) > 1:
                 continue
-            # try:
             obs, action, reward, done, discount, kwargs = load_data(ep_filename)
             yield (obs, action, reward, done, discount, kwargs)
-
-            # except:
-            #     continue
 
     def _alloc(self):
         """
@@ -273,6 +290,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             # Dump the data
             ep_idx = self.num_episodes
             ep_len = len(self.current_ep["reward"])
+            # Check to make sure that kwargs are the same length
+            add_dummy_transition(self.current_ep, ep_len)
             self.num_episodes += 1
             ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
             ep_filename = f"{ts}_{ep_idx}_{ep_len}.npz"
@@ -356,7 +375,9 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         ep_idx = 0
         ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
         ep_filename = f"{ts}_{ep_idx}_{ep_len}.npz"
-        save_data(data, os.path.join(path, ep_filename))
+        save_path = os.path.join(path, ep_filename)
+        save_data(data, save_path)
+        return save_path
 
     def __del__(self):
         if not self.cleanup:
@@ -557,6 +578,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         self._done_buffer[self._idx - 1], self._done_buffer[self._size - 1] = idx_done, size_done
 
     def _alloc(self):
+        self._last_extract_size = 0
         super()._alloc()
         self._extract_markers()  # After we have allocated the dataset, extract markers
         self._last_extract_size = self._size
@@ -566,7 +588,6 @@ class HindsightReplayBuffer(ReplayBuffer):
         if abs(self._idx - self._last_extract_size) >= self.mark_every:
             # Update the markers
             self._extract_markers()  # After we have allocated the dataset, extract markers
-            self._last_extract_idx = self._idx
 
     def _get_one_idx(self, stack: int, pad: int) -> Union[int, np.ndarray]:
         # Sample an episode
@@ -599,7 +620,7 @@ class HindsightReplayBuffer(ReplayBuffer):
         # Get all the valid samples
         ep_idxs = ep_idxs[:batch_size]
         sample_limit = sample_limit[:batch_size]
-        pos = np.random.randint(0, sample_limit) + 1  # Can't sample the first.
+        pos = np.random.randint(0, sample_limit) + 1
         idxs = self._starts[ep_idxs] + pos
         if stack > 1:
             stack_idxs = np.arange(stack) * self.nstep
@@ -625,8 +646,12 @@ class HindsightReplayBuffer(ReplayBuffer):
         obs = get_from_batch(self._obs_buffer, obs_idxs)
         action = get_from_batch(self._action_buffer, idxs)
         kwargs = get_from_batch(self._kwarg_buffers, next_obs_idxs)
-        desired = obs[self.goal_key].copy()  # Get the designed goal
-        horizon = -100 * np.ones_like(idxs, dtype=np.int)
+
+        if "horizon" in kwargs:
+            horizon = kwargs["horizon"]
+        else:
+            horizon = -100 * np.ones_like(idxs, dtype=np.int)
+
         her_idxs = np.where(np.random.uniform(size=idxs.shape) < self.relabel_fraction)
 
         if self.strategy == "last":
@@ -634,23 +659,44 @@ class HindsightReplayBuffer(ReplayBuffer):
         elif self.strategy == "next":
             # It was whatever was achieved in the next obs
             goal_idxs = np.minimum(self._ends[ep_idxs[her_idxs]], last_idxs[her_idxs])
-        elif self.strategy.startswith("any"):
-            # TODO
-            raise NotImplementedError
-        else:  # Default to future
-            goal_idxs = np.random.randint(
-                last_idxs[her_idxs], self._ends[ep_idxs[her_idxs]] + 1
-            )  # Go the the end of the episode
+        else:
+            # add 1 to go the the end of the episode
+            goal_idxs = np.random.randint(last_idxs[her_idxs], self._ends[ep_idxs[her_idxs]] + 1)
+
+        # Compute the horizon
+        if self.nstep > 1:
+            horizon[her_idxs] = np.ceil((goal_idxs - obs_idxs[her_idxs]) / self.nstep).astype(np.int)
+        else:
+            horizon[her_idxs] = goal_idxs - obs_idxs[her_idxs]
+
+        # If we use the any strategy, sample some random goals
+        if self.strategy.startswith("any"):
+            # Relabel part of the goals to anything, other goals are relabeled with future
+            # The percentage sampled marignally is indicated by the fraction. ie any_0.5 will sample
+            # 50% of the goals randomly from the achieved states.
+            parts = self.strategy.split("_")
+            if len(parts) == 1:
+                parts.append(1)
+            if self.batch_size == 1:
+                any_split = 1 if np.random.random() < float(parts[1]) else 0
+            else:
+                any_split = int(her_idxs[0].shape[0] * float(parts[1]))
+            goal_idxs[:any_split] = np.random.randint(0, self._size, size=any_split)  # sample any index
+            # Adjust horizon
+            any_idxs = (her_idxs[0][:any_split],)
+            horizon[any_idxs] = -100  # set them back to -100, the default mask value
 
         if len(idxs.shape) == 2:
             goal_idxs = np.expand_dims(goal_idxs, axis=-1)  # Add the stack dimension
 
         # Relabel
-        desired[her_idxs] = self._obs_buffer[self.achieved_key][goal_idxs]
-        horizon[her_idxs] = goal_idxs - idxs[her_idxs]
+        if self.relabel_fraction < 1.0:
+            desired = obs[self.goal_key].copy()
+            desired[her_idxs] = self._obs_buffer[self.achieved_key][goal_idxs]
+        else:
+            desired = self._obs_buffer[self.achieved_key][goal_idxs]
         kwargs["horizon"] = horizon
 
-        # TODO: Check and see if desired is the same shape as the slices. This coudl become problematic later.
         reward = np.zeros_like(idxs, dtype=np.float32)
         discount = np.ones_like(idxs, dtype=np.float32)
         for i in range(self.nstep):

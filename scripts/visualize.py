@@ -18,6 +18,9 @@ if __name__ == "__main__":
     parser.add_argument("--height", type=int, default=120, help="Height of image")
     parser.add_argument("--strict", action="store_true", default=False, help="Strict")
     parser.add_argument(
+        "--end-on-success", action="store_True", default=False, help="Terminate gif on success condition."
+    )
+    parser.add_argument(
         "--override",
         metavar="KEY=VALUE",
         nargs="+",
@@ -54,7 +57,7 @@ if __name__ == "__main__":
 
     model = load(config, args.path, device=args.device, strict=args.strict)
     model.eval_mode()  # Place the model in evaluation mode
-    env = model.env
+    env = model.env if model.env is not None else model.eval_env
     ep_rewards, ep_lengths = [], []
     frames = []
     for ep in range(args.num_ep):
@@ -65,18 +68,22 @@ if __name__ == "__main__":
         if save_gif:
             frames.append(frame)
         while not done and ep_length <= args.max_len:
-            action = model.predict(obs)
+            batch = dict(obs=obs)
+            if hasattr(env, "_max_episode_steps"):
+                batch["horizon"] = env._max_episode_steps - ep_length
+            action = model.predict(batch)
             obs, reward, done, info = env.step(action)
-            frame = env.render(**render_kwargs)
-            if save_gif:
-                frames.append(frame)
             ep_reward += reward
             ep_length += 1
-            if ("success" in info and info["success"]) or ("is_success" in info and info["is_success"]):
+            if ep_length % args.every_n_frames == 0:
+                frame = env.render(**render_kwargs)
+                if save_gif:
+                    frames.append(frame)
+            if args.end_on_success and (info.get("success", False) or info.get("is_success", False)):
                 print("[research] Episode success, terminating early.")
                 done = True
         ep_rewards.append(ep_reward)
-        ep_length.append(ep_length)
+        ep_lengths.append(ep_length)
         print("Finished Episode. Reward:", ep_reward, "Length:", ep_length)
 
     print("Overall. Reward:", np.mean(ep_rewards), "Length:", np.mean(ep_lengths))
