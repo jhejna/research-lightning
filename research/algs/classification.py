@@ -21,20 +21,18 @@ class Classification(Algorithm):
             accuracy = (torch.argmax(yhat, dim=-1) == y).sum() / y.shape[0]
         return loss, accuracy
 
-    def _train_step(self, batch: Any) -> Dict:
+    def train_step(self, batch: Any, step: int, total_steps: int) -> Dict:
         """
         Overriding the Algorithm BaseClass Method _train_step.
         Returns a dictionary of training metrics.
         """
-        self.optim[
-            "network"
-        ].zero_grad()  # By default, the optimizer is stored under 'network' if no custom optimizer setup is performed.
+        self.optim["network"].zero_grad()  # By default, the optimizer is stored under 'network'
         loss, accuracy = self._compute_loss_and_accuracy(batch)
         loss.backward()
         self.optim["network"].step()
         return dict(loss=loss.item(), accuracy=accuracy.item())
 
-    def _validation_step(self, batch: Any) -> Dict:
+    def validation_step(self, batch: Any) -> Dict:
         """
         Overriding the Algorithm BaseClass Method _train_step.
         Returns a dictionary of validation metrics.

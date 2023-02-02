@@ -19,7 +19,7 @@ collate_fn: null
 checkpoint: null
 
 env: Empty
-env_kwargs: 
+env_kwargs:
   # Specify the IO shape
   observation_shape: [1, 28, 28]
   action_high: 10
@@ -29,7 +29,7 @@ dataset_kwargs:
   dataset: MNIST
   root: ../datasets/mnist
   train: True
-  transform: 
+  transform:
    - ["ToTensor", {}]
    - ["Normalize", {"mean": [0.1307], "std": [0.3081]}]
 validation_dataset_kwargs:
@@ -38,14 +38,22 @@ validation_dataset_kwargs:
 processor: Flatten
 
 schedule: linear_decay
-schdule_kwargs:
+schedule_kwargs:
+  total_steps: 10000
   start_step: 5000
 
-train_kwargs:
-  total_steps: 10000
-  log_freq: 25
-  eval_freq: 500
-  max_eval_steps: 100
-  loss_metric: loss
-  workers: 2
-
+trainer_kwargs: # Arguments given to Algorithm.train
+  total_steps: 10000 # The total number of steps to train
+  log_freq: 25 # How often to log values
+  profile_freq: 10 # How often to time different componetns
+  eval_freq: 500 # How often to run evals
+  max_eval_steps: 100 # Maximum number of steps from the validation dataset, if included
+  loss_metric: loss # The validation metric that determines when to save the "best_checkpoint"
+  eval_fn: null
+  train_dataloader_kwargs:
+    batch_size: 64
+    num_workers: 2
+  validation_dataloader_kwargs:
+    num_workers: 0
+  benchmark: False # whether or not to enable torch.cuddn.benchmark
+  torch_compile: True # wether or not to use torch compile
