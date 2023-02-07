@@ -34,6 +34,7 @@ class MLPEncoder(nn.Module):
         normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
     ):
+        assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
         assert len(hidden_layers) > 1, "Must have at least one hidden layer for a shared MLP Extractor"
         self.mlp = MLP(
             observation_space.shape[0],
@@ -45,6 +46,47 @@ class MLPEncoder(nn.Module):
         )
         if ortho_init:
             self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
+
+    def forward(self, obs):
+        return self.mlp(obs)
+
+
+class MLPValue(nn.Module):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        hidden_layers: List[int] = [256, 256],
+        act: Type[nn.Module] = nn.ReLU,
+        output_act: Optional[Type[nn.Module]] = None,
+        dropout: float = 0.0,
+        normalization: Optional[Type[nn.Module]] = None,
+        ortho_init: bool = False,
+        output_gain: Optional[float] = None,
+        ensemble_size: int = 1,
+    ) -> None:
+        super().__init__()
+        assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
+
+        self.ensemble_size = ensemble_size
+        mlp_kwargs = dict(
+            hidden_layers=hidden_layers, act=act, dropout=dropout, normalization=normalization, output_act=output_act
+        )
+        if self.ensemble_size > 1:
+            self.mlp = EnsembleMLP(observation_space.shape[0], 1, ensemble_size=ensemble_size, **mlp_kwargs)
+        else:
+            self.mlp = MLP(observation_space.shape[0], 1, **mlp_kwargs)
+
+        if ortho_init:
+            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
+            if output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+
+    def forward(self, obs):
+        v = self.mlp(obs).squeeze(-1)  # Remove the last dim
+        if self.ensemble_size == 1:
+            v = v.unsqueeze(0)  # add in the ensemble dim
+        return v
 
 
 class ContinuousMLPCritic(nn.Module):
@@ -59,27 +101,26 @@ class ContinuousMLPCritic(nn.Module):
         ensemble_size: int = 2,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
+        output_act: Optional[Type[nn.Module]] = None,
     ):
         super().__init__()
+        assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
         self.ensemble_size = ensemble_size
+        mlp_kwargs = dict(
+            hidden_layers=hidden_layers, act=act, dropout=dropout, normalization=normalization, output_act=output_act
+        )
         if self.ensemble_size > 1:
             self.q = EnsembleMLP(
                 observation_space.shape[0] + action_space.shape[0],
                 1,
                 ensemble_size=ensemble_size,
-                hidden_layers=hidden_layers,
-                act=act,
-                dropout=dropout,
-                normalization=normalization,
+                **mlp_kwargs,
             )
         else:
             self.q = MLP(
                 observation_space.shape[0] + action_space.shape[0],
                 1,
-                hidden_layers=hidden_layers,
-                act=act,
-                dropout=dropout,
-                normalization=normalization,
+                **mlp_kwargs,
             )
 
         if ortho_init:
@@ -96,6 +137,10 @@ class ContinuousMLPCritic(nn.Module):
 
 
 class DiscreteMLPCritic(nn.Module):
+    """
+    Q function for discrete Q learning. Currently doesn't support ensembles.
+    """
+
     def __init__(
         self,
         observation_space: gym.Space,
@@ -123,38 +168,6 @@ class DiscreteMLPCritic(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.q(obs)
-
-
-class MLPValue(nn.Module):
-    def __init__(
-        self,
-        observation_space: gym.Space,
-        action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        output_act: Optional[Type[nn.Module]] = None,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
-        ortho_init: bool = False,
-        output_gain: Optional[float] = None,
-    ):
-        super().__init__()
-        self.mlp = MLP(
-            observation_space.shape[0],
-            1,
-            hidden_layers=hidden_layers,
-            act=act,
-            dropout=dropout,
-            normalization=normalization,
-            output_act=output_act,
-        )
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
-
-    def forward(self, obs):
-        return self.mlp(obs).squeeze(-1)  # Return only scalar values, no final dim
 
 
 class ContinuousMLPActor(nn.Module):
@@ -225,7 +238,6 @@ class DiagonalGaussianMLPActor(nn.Module):
         output_act: Optional[Type[nn.Module]] = None,
     ):
         super().__init__()
-        # If we have a dict space, concatenate the input dims
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
 
         self.state_dependent_log_std = state_dependent_log_std

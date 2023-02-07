@@ -1,5 +1,5 @@
 # Register Preprocessors here
 from .base import ComposeProcessor
-from .random_shifts_aug import RandomShiftsAug
+from .image_augmentation import RandomShiftsAug
 from .normalization import RunningObservationNormalizer
 from .concatenate import ConcatenateProcessor

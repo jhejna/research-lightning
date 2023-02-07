@@ -9,12 +9,13 @@ from research.utils import utils
 from .base import Processor
 
 
-class RunningMeanStd(object):
+class RunningMeanStd(torch.nn.Module):
     def __init__(self, shape, epsilon: float = 1e-6):
+        super().__init__()
         self.shape = shape
-        self._mean = torch.zeros(shape, dtype=torch.float)
-        self._var = torch.ones(shape, dtype=torch.float)
-        self._count = epsilon
+        self._mean = torch.nn.Parameter(torch.zeros(shape, dtype=torch.float), requires_grad=False)
+        self._var = torch.nn.Parameter(torch.ones(shape, dtype=torch.float), requires_grad=False)
+        self._count = torch.nn.Parameter(torch.tensor(epsilon, dtype=torch.float), requires_grad=False)
 
     def update(self, x: Union[float, np.ndarray, torch.Tensor]) -> None:
         if isinstance(x, float):
@@ -37,15 +38,15 @@ class RunningMeanStd(object):
         total_count = self._count + count
 
         new_mean = self._mean + delta * count / total_count
+
         m_a = self._var * self._count
         m_b = var * count
         m_2 = m_a + m_b + torch.square(delta) * self._count * count / total_count
         new_var = m_2 / total_count
-
         # Update member variables
-        self._count = total_count
-        self._mean = new_mean
-        self._var = new_var
+        self._count.copy_(total_count)
+        self._mean.copy_(new_mean)
+        self._var.copy_(new_var)
 
     @property
     def mean(self):

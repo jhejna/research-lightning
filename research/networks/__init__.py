@@ -1,5 +1,5 @@
 # Register Network Classes here.
-from .base import ActorCriticPolicy
+from .base import ActorCriticPolicy, ActorValuePolicy, ActorCriticValuePolicy, ActorPolicy
 from .mlp import (
     ContinuousMLPActor,
     ContinuousMLPCritic,

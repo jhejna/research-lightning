@@ -61,3 +61,19 @@ class ModuleContainer(torch.nn.Module):
                 attr.compile(**kwargs)
             else:
                 setattr(self, container, torch.compile(attr, **kwargs))
+
+
+class ActorCriticPolicy(ModuleContainer):
+    CONTAINERS = ["encoder", "actor", "critic"]
+
+
+class ActorCriticValuePolicy(ModuleContainer):
+    CONTAINERS = ["encoder", "actor", "critic", "value"]
+
+
+class ActorValuePolicy(ModuleContainer):
+    CONTAINERS = ["encoder", "actor", "value"]
+
+
+class ActorPolicy(ModuleContainer):
+    CONTAINERS = ["encoder", "actor"]

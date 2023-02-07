@@ -7,11 +7,11 @@ import numpy as np
 import torch
 
 from research.datasets import RolloutBuffer
-from research.networks.base import ActorCriticPolicy
+from research.networks.base import ActorValuePolicy
 from research.processors.normalization import RunningMeanStd, RunningObservationNormalizer
 from research.utils import utils
 
-from .base import Algorithm
+from ..base import Algorithm
 
 
 class PPO(Algorithm):
@@ -31,7 +31,7 @@ class PPO(Algorithm):
     ):
         super().__init__(*args, **kwargs)
         # Perform initial type checks
-        assert isinstance(self.network, ActorCriticPolicy)
+        assert isinstance(self.network, ActorValuePolicy)
 
         # Store algorithm values
         self.num_epochs = num_epochs
@@ -54,7 +54,7 @@ class PPO(Algorithm):
     def _collect_rollouts(self) -> Dict:
         # Setup the dataset and network
         self.dataset.setup()
-        self.eval_mode()
+        self.eval()
 
         # Setup metrics
         metrics = dict(reward=[], length=[], success=[])
@@ -67,21 +67,21 @@ class PPO(Algorithm):
                 obs = utils.unsqueeze(utils.to_tensor(obs), 0)
                 if isinstance(self.processor, RunningObservationNormalizer):
                     self.processor.update(obs)
-                batch = self._format_batch(dict(obs=obs))  # Preprocess obs
+                batch = self.format_batch(dict(obs=obs))  # Preprocess obs
                 latent = self.network.encoder(batch["obs"])
                 dist = self.network.actor(latent)
                 # Collect relevant information
                 action = dist.sample()
                 log_prob = dist.log_prob(action).sum(dim=-1)
-                value = self.network.critic(latent)
+                value = self.network.value(latent)
                 # Unprocess back to numpy
                 action = utils.to_np(utils.get_from_batch(action, 0))
                 log_prob = utils.to_np(utils.get_from_batch(log_prob, 0))
                 value = utils.to_np(utils.get_from_batch(value, 0))
                 extras = self._compute_extras(dist)
 
-            if isinstance(self.action_space, gym.spaces.Box):  # Clip the actions
-                clipped_action = np.clip(action, self.action_space.low, self.action_space.high)
+            if isinstance(self.env.action_space, gym.spaces.Box):  # Clip the actions
+                clipped_action = np.clip(action, self.env.action_space.low, self.env.action_space.high)
 
             obs, reward, done, info = self.env.step(clipped_action)
 
@@ -108,8 +108,8 @@ class PPO(Algorithm):
                     obs = utils.unsqueeze(utils.to_tensor(obs), 0)
                     if isinstance(self.processor, RunningObservationNormalizer):
                         self.processor.update(obs)
-                    batch = self._format_batch(dict(obs=obs))  # Preprocess obs
-                    terminal_value = self.network.critic(self.network.encoder(batch["obs"]))
+                    batch = self.format_batch(dict(obs=obs))  # Preprocess obs
+                    terminal_value = self.network.value(self.network.encoder(batch["obs"]))
                     terminal_value = utils.to_np(utils.get_from_batch(terminal_value, 0))
                 reward += self.dataset.discount * terminal_value
                 obs = self.env.reset()
@@ -119,27 +119,31 @@ class PPO(Algorithm):
 
             self._env_steps += 1
 
-        self.train_mode()
-        metrics[
-            "env_steps"
-        ] = self._env_steps  # Log environment steps because it isn't proportional to the number of batches.
+        self.train()
+        metrics["env_steps"] = self._env_steps  # Log env steps because it's not proportional to train steps
         metrics["reward_std"] = np.std(metrics["reward"])
+        metrics["reward"] = np.mean(metrics["reward"])
+        metrics["length"] = np.mean(metrics["length"])
+        metrics["success"] = np.mean(metrics["success"])
         return metrics
 
     def _compute_extras(self, dist):
         # Used for computing extras values for different versions of PPO
         return {}
 
-    def _setup_train(self) -> None:
-        # Checks
+    def setup(self) -> None:
+        self.setup_train_dataset()
         assert isinstance(self.dataset, RolloutBuffer)
         # Logging metrics
         self._env_steps = 0
         self._collect_rollouts()
+        # Track the number of epochs. This is used for training.
+        self._epochs = 0
 
-    def _train_step(self, batch: Any) -> Dict:
+    def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
         metrics = dict(env_steps=self._env_steps)
-        if self.dataset.last_batch and self.epochs % self.num_epochs == 0:
+        self._epochs += int(self.dataset.last_batch)
+        if self.dataset.last_batch and self._epochs % self.num_epochs == 0:
             # On the last batch of the epoch recollect data.
             metrics.update(self._collect_rollouts())
             return metrics  # Return immediatly so we don't do a gradient step on old data.
@@ -148,7 +152,7 @@ class PPO(Algorithm):
         latent = self.network.encoder(batch["obs"])
         dist = self.network.actor(latent)
         log_prob = dist.log_prob(batch["action"]).sum(dim=-1)
-        value = self.network.critic(latent)
+        value = self.network.value(latent)
 
         advantage = batch["advantage"]
         if self.normalize_advantage:
@@ -179,7 +183,7 @@ class PPO(Algorithm):
         metrics["loss"] = total_loss.item()
         return metrics
 
-    def _validation_step(self, batch: Any):
+    def validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
 
     def _predict(self, batch: Any, sample=False) -> torch.Tensor:
@@ -206,27 +210,27 @@ class AdaptiveKLPPO(PPO):
         sigma = utils.to_np(utils.get_from_batch(dist.scale, 0))
         return dict(mu=mu, sigma=sigma)
 
-    def _setup_train(self):
+    def setup(self):
         # Logging metrics
         self._env_steps = 0
         self._collect_rollouts()
         self._kl_divs = collections.deque(maxlen=self.kl_window)
 
-    def _train_step(self, batch: Dict) -> Dict:
+    def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
         metrics = dict(env_steps=self._env_steps)
-        if self.dataset.last_batch and self.epochs % self.num_epochs == 0:
+        self._epochs += int(self.dataset.last_batch)
+        if self.dataset.last_batch and self._epochs % self.num_epochs == 0:
             # On the last batch of the epoch recollect data.
             metrics.update(self._collect_rollouts())
             # set flag for updating KL divergence
             update_kl_beta = True
         else:
             update_kl_beta = False
-
         # Run the policy to predict the values, log probs, and entropies
         latent = self.network.encoder(batch["obs"])
         dist = self.network.actor(latent)
         log_prob = dist.log_prob(batch["action"]).sum(dim=-1)
-        value = self.network.critic(latent)
+        value = self.network.value(latent)
 
         advantage = batch["advantage"]
         if self.normalize_advantage:
@@ -273,5 +277,5 @@ class AdaptiveKLPPO(PPO):
         metrics["beta"] = self.beta
         return metrics
 
-    def _validation_step(self, batch):
+    def validation_step(self, batch: Any) -> Dict:
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
