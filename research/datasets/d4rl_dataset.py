@@ -38,7 +38,7 @@ class D4RLDataset(ReplayBuffer):
             d4rl.set_dataset_path(d4rl_path)
         super().__init__(observation_space, action_space, **kwargs)
 
-    def preload(self):
+    def _data_generator(self):
         env = gym.make(self.env_name)
         dataset = env.get_dataset()
 

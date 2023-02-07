@@ -2,6 +2,7 @@ import copy
 import datetime
 import io
 import os
+import random
 import shutil
 import tempfile
 from typing import Any, Callable, Dict, Optional, Union
@@ -10,22 +11,14 @@ import gym
 import numpy as np
 import torch
 
-from research.utils.utils import (
-    concatenate,
-    flatten_dict,
-    get_from_batch,
-    nest_dict,
-    np_dataset_alloc,
-    set_in_batch,
-    squeeze,
-)
+from research.utils import utils
 
 
 def save_data(data: Dict, path: str) -> None:
     # Perform checks to make sure everything needed is in the data object
     assert all([k in data for k in ("obs", "action", "reward", "done", "discount")])
     # Flatten everything for saving as an np array
-    data = flatten_dict(data)
+    data = utils.flatten_dict(data)
     # Format everything into numpy in case it was saved as a list
     for k in data.keys():
         if not isinstance(data[k], np.ndarray):
@@ -56,7 +49,7 @@ def load_data(path: str) -> Dict:
         data = np.load(f)
         data = {k: data[k] for k in data.keys()}
     # Unnest the data to get everything in the correct format
-    data = nest_dict(data)
+    data = utils.nest_dict(data)
     kwargs = data.get("kwargs", dict())
     return data["obs"], data["action"], data["reward"], data["done"], data["discount"], kwargs
 
@@ -91,24 +84,45 @@ def add_dummy_transition(d: Dict, length: int):
             if len(d[k]) == length - 1:
                 d[k].insert(0, d[k][0])  # Duplicate the first item.
         else:
-            raise ValueError("Invalid value passed to pad_ep")
+            raise ValueError("Invalid value passed to `pad_ep`")
+
+
+def get_buffer_bytes(buffer: np.ndarray) -> int:
+    if isinstance(buffer, dict):
+        return sum([get_buffer_bytes(v) for v in buffer.values()])
+    elif isinstance(buffer, np.ndarray):
+        return buffer.nbytes
+    else:
+        raise ValueError("Unsupported type passed to `get_buffer_bytes`.")
+
+
+def remove_stack_dim(space: gym.Space) -> gym.Space:
+    if isinstance(space, gym.spaces.Dict):
+        return gym.spaces.Dict({k: remove_stack_dim(v) for k, v in space.items()})
+    elif isinstance(space, gym.spaces.Box):
+        return gym.spaces.Box(low=space.low[0], high=space.high[0])
+    else:
+        return space
 
 
 class ReplayBuffer(torch.utils.data.IterableDataset):
     """
-    Generic Replay Buffer Class
+    Generic Replay Buffer Class.
+
     This class adheres to the following conventions to support a wide array of multiprocessing options:
     1. Variables/functions starting with "_", like "_help" are to be used by the worker processes. This means
         they should be used only after __iter__ is called.
-    2. variables/functions named regularly are to be used by the main thread
+    2. variables/functions named regularly without a leading "_" are to be used by the main thread. This includes
+        standard functions like "add".
 
     There are a few critical setup options.
     1. Distributed: this determines if the data is stored on the main processes, and then used via the shared address
-        space. This will only work when multiprocessing is set to fork and not spawn.
-        AKA it will duplicate memory on Windows and OSX
-    2. Capacity: determines if the buffer is setup for Online RL (can add data), or offline (cannot add data)
+        space. This will only work when multiprocessing is set to `fork` and not `spawn`.
+        AKA it will duplicate memory on Windows and OSX!!!
+    2. Capacity: determines if the buffer is setup upon creation. If it is set to a known value, then we can add data
+        online with `add`, or by pulling more data from disk. If is set to None, the dataset is initialized to the full
+        size of the offline dataset.
     3. batch_size: determines if we use a single sample or return entire batches
-    4. dataloader workers: determines how we setup the sharing.
 
     Some options are mutually exclusive. For example, it is bad to use a non-distributed layout with
     workers and online data. This will generate a bunch of copy on writes.
@@ -130,19 +144,29 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         observation_space: gym.Space,
         action_space: gym.Space,
         capacity: Optional[int] = None,
-        distributed: bool = True,
+        distributed: bool = True,  # Whether or not the dataset is created in __init__ or __iter__. True means _-iter__
         path: Optional[str] = None,
         discount: float = 0.99,
         nstep: int = 1,
         cleanup: bool = True,
-        fetch_every: int = 1000,
+        fetch_every: int = 1000,  # How often to pull new data into the replay buffer.
         batch_size: Optional[int] = None,
-        sample_multiplier: float = 1.5,
+        sample_multiplier: float = 1.5,  # Should be high enough so we always hit batch_size.
         stack: int = 1,
         pad: int = 0,
-        next_obs: bool = True,
+        next_obs: bool = True,  # Whether or not to load the next obs.
+        stacked_obs: bool = False,  # Whether or not the data provided to the buffer will have stacked obs
+        stacked_action: bool = False,  # Whether or not the data provided to the buffer will have stacked obs
     ):
-        # run initial argument checks
+        super().__init__()
+        # Check that we don't over add in case of observation stacking
+        self.stacked_obs = stacked_obs
+        self.stacked_action = stacked_action
+        if self.stacked_obs:
+            observation_space = remove_stack_dim(observation_space)
+        if self.stacked_action:
+            action_space = remove_stack_dim(action_space)
+
         self.observation_space = observation_space
         self.action_space = action_space
         self.dummy_action = self.action_space.sample()
@@ -153,14 +177,16 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             # Setup a storage path
             self.storage_path = tempfile.mkdtemp(prefix="replay_buffer_")
             print("[research] Replay Buffer Storage Path", self.storage_path)
-        self.distributed = distributed  # Whether or not the dataset is created in __init__ or __iter__
+        self.distributed = distributed
+
+        # Data Fetching parameters
         self.cleanup = cleanup
         self.path = path
         self.fetch_every = fetch_every
         self.sample_multiplier = sample_multiplier
         self.num_episodes = 0
 
-        # Sampling values
+        # Sampling values.
         self.discount = discount
         self.nstep = nstep
         self.stack = stack
@@ -170,17 +196,36 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         self.pad = pad
         self.next_obs = next_obs
 
+        if self.capacity is not None:
+            # Print the total estimated data footprint used by the replay buffer.
+            storage = 0
+            storage += utils.np_bytes_per_instance(self.observation_space)
+            storage += utils.np_bytes_per_instance(self.action_space)
+            storage += utils.np_bytes_per_instance(0.0)  # Reward
+            storage += utils.np_bytes_per_instance(0.0)  # Discount
+            storage += utils.np_bytes_per_instance(False)  # Done
+            storage = storage * capacity  # Total storage in Bytes.
+            print("[ReplayBuffer] Estimated storage requirement for obs, action, reward, discount, done.")
+            print("\t will not include kwarg storage: {:.2f} GB".format(storage / 1024**3))
+
+        # Initialize in __init__ if the replay buffer is not distributed.
         if not self.distributed:
             print("[research] Replay Buffer not distributed. Alloc-ing in __init__")
             self._alloc()
 
-    def preload(self):
+    def _data_generator(self):
         """
         Can be overridden in order to load the initial data differently.
         By default assumes the data to be the standard format, and returned as:
         *(obs, action, reward, done, discount, kwargs)
         or
         None
+
+        This function can be overriden by sub-classes in order to produce data batches.
+        It should do the following:
+        1. split data across torch data workers
+        2. randomize the order of data
+        3. yield data of the form (obs, action, reward, done, discount, kwargs)
         """
         if self.path is None:
             return
@@ -189,52 +234,70 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         num_workers = 1 if worker_info is None else worker_info.num_workers
         worker_id = 0 if worker_info is None else worker_info.id
 
-        ep_filenames = sorted(
-            [os.path.join(self.path, f) for f in os.listdir(self.path) if f.endswith(".npz")], reverse=True
-        )
+        ep_filenames = [os.path.join(self.path, f) for f in os.listdir(self.path) if f.endswith(".npz")]
+        random.shuffle(ep_filenames)  # Shuffle all the filenames
 
         if num_workers > 1 and len(ep_filenames) == 1:
             print(
                 "[ReplayBuffer] Warning: using multiple workers but single replay file. Reduce memory usage by sharding"
                 " data with `save` instead of `save_flat`."
             )
+        elif num_workers > 1 and len(ep_filenames) < num_workers:
+            print("[ReplayBuffer] Warning: using more workers than dataset files.")
 
         for ep_filename in ep_filenames:
             ep_idx, _ = [int(x) for x in os.path.splitext(ep_filename)[0].split("_")[-2:]]
             # Spread loaded data across workers if we have multiple workers and files.
             if ep_idx % num_workers != worker_id and len(ep_filenames) > 1:
-                continue
+                continue  # Only yield the files belonging to this worker.
             obs, action, reward, done, discount, kwargs = load_data(ep_filename)
             yield (obs, action, reward, done, discount, kwargs)
 
     def _alloc(self):
         """
         This function is responsible for allocating all of the data needed.
-        It can be called in __init__ or during __iter___
+        It can be called in __init__ or during __iter___.
+
+        It allocates all of the np buffers used to store data internal.
+        It also sets the follow variables:
+            _idx: internal _idx for the worker thread
+            _size: internal _size of each workers dataset
+            _current_data_generator: the offline data generator
+            _loaded_all_offline_data: set to True if we don't need to load more offline data
         """
 
         worker_info = torch.utils.data.get_worker_info()
         num_workers = 1 if worker_info is None else worker_info.num_workers
+        worker_id = 0 if worker_info is None else worker_info.id
+        self._current_data_generator = self._data_generator()
+
         if self.capacity is not None:
             # If capacity was given, then directly alloc the buffers
             self._capacity = self.capacity // num_workers
-            self._obs_buffer = np_dataset_alloc(self.observation_space, self._capacity)
-            self._action_buffer = np_dataset_alloc(self.action_space, self._capacity)
-            self._reward_buffer = np_dataset_alloc(0.0, self._capacity)
-            self._done_buffer = np_dataset_alloc(False, self._capacity)
-            self._discount_buffer = np_dataset_alloc(0.0, self._capacity)
+            self._obs_buffer = utils.np_dataset_alloc(self.observation_space, self._capacity)
+            self._action_buffer = utils.np_dataset_alloc(self.action_space, self._capacity)
+            self._reward_buffer = utils.np_dataset_alloc(0.0, self._capacity)
+            self._done_buffer = utils.np_dataset_alloc(False, self._capacity)
+            self._discount_buffer = utils.np_dataset_alloc(0.0, self._capacity)
             self._kwarg_buffers = dict()
             self._size = 0
             self._idx = 0
 
-            # Next, write in the alloced data lazily using the generator.
-            for data in self.preload():
-                obs, action, reward, done, discount, kwargs = data
-                self._add_to_buffer(obs, action, reward, done, discount, **kwargs)
+            # Next, write in the alloced data lazily using the generator until we are full.
+            preloaded_episodes = 0
+            try:
+                while self._size < self._capacity:
+                    obs, action, reward, done, discount, kwargs = next(self._current_data_generator)
+                    self._add_to_buffer(obs, action, reward, done, discount, **kwargs)
+                    preloaded_episodes += 1
+                self._loaded_all_offline_data = False
+            except StopIteration:
+                self._loaded_all_offline_data = True  # We reached the end of the available dataset.
+
         else:
             self._capacity = None
             # Get all of the data and concatenate it together
-            data = concatenate(*list(self.preload()), dim=0)
+            data = utils.concatenate(*list(self._current_data_generator), dim=0)
             obs, action, reward, done, discount, kwargs = data
             self._obs_buffer = obs
             self._action_buffer = action
@@ -245,6 +308,17 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             # Set the size to be the shape of the reward buffer
             self._size = self._reward_buffer.shape[0]
             self._idx = self._size
+            self._loaded_all_offline_data = True
+
+        # Print the size of the allocation.
+        storage = 0
+        storage += get_buffer_bytes(self._obs_buffer)
+        storage += get_buffer_bytes(self._action_buffer)
+        storage += get_buffer_bytes(self._reward_buffer)
+        storage += get_buffer_bytes(self._done_buffer)
+        storage += get_buffer_bytes(self._discount_buffer)
+        storage += get_buffer_bytes(self._kwarg_buffers)
+        print("[ReplayBuffer] Worker {:d} allocated {:.2f} GB".format(worker_id, storage / 1024**3))
 
     def add(
         self,
@@ -258,6 +332,15 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         # Make sure that if we are adding the first transition, it is consistent
         assert self.capacity is not None, "Tried to extend to a static size buffer."
         assert (action is None) == (reward is None) == (done is None) == (discount is None)
+
+        is_list = isinstance(reward, list) or isinstance(reward, np.ndarray)
+        # Take only the last value if we are using stacking.
+        # This prevents saving a bunch of extra data.
+        if not is_list and self.stacked_obs:
+            obs = utils.get_from_batch(obs, -1)
+        if not is_list and action is not None and self.stacked_action:
+            action = utils.get_from_batch(action, -1)
+
         if action is None:
             assert not isinstance(reward, (np.ndarray, list)), "Tried to add initial transition in batch mode."
             action = copy.deepcopy(self.dummy_action)
@@ -266,8 +349,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             discount = 1.0
 
         # Now we have multiple cases based on the transition type and parallelism of the dataset
-        if not self.is_parallel:
-            # We can add directly
+        if self._is_serial:
+            # We can add directly to the storage buffers.
             self._add_to_buffer(obs, action, reward, done, discount, **kwargs)
             if self.cleanup:
                 # If we are in cleanup mode, we don't keep the old data around. Immediately return
@@ -276,9 +359,6 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         if not hasattr(self, "current_ep"):
             self.current_ep = dict()
 
-        is_list = isinstance(reward, list) or isinstance(reward, np.ndarray)
-        is_done = done[-1] if is_list else done
-
         add_to_ep(self.current_ep, "obs", obs, is_list)
         add_to_ep(self.current_ep, "action", action, is_list)
         add_to_ep(self.current_ep, "reward", reward, is_list)
@@ -286,6 +366,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         add_to_ep(self.current_ep, "discount", discount, is_list)
         add_to_ep(self.current_ep, "kwargs", kwargs, is_list)
 
+        is_done = done[-1] if is_list else done
         if is_done:
             # Dump the data
             ep_idx = self.num_episodes
@@ -306,40 +387,41 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         else:
             num_to_add = 1
 
-        if self._idx + num_to_add > self.capacity:
+        if self._idx + num_to_add > self._capacity:
             # Add all we can at first, then add the rest later
             num_b4_wrap = self._capacity - self._idx
             self._add_to_buffer(
-                get_from_batch(obs, 0, num_b4_wrap),
-                get_from_batch(action, 0, num_b4_wrap),
+                utils.get_from_batch(obs, 0, num_b4_wrap),
+                utils.get_from_batch(action, 0, num_b4_wrap),
                 reward[:num_b4_wrap],
                 done[:num_b4_wrap],
                 discount[:num_b4_wrap],
-                **get_from_batch(kwargs, 0, num_b4_wrap),
+                **utils.get_from_batch(kwargs, 0, num_b4_wrap),
             )
             self._add_to_buffer(
-                get_from_batch(obs, num_b4_wrap, num_to_add),
-                get_from_batch(action, num_b4_wrap, num_to_add),
+                utils.get_from_batch(obs, num_b4_wrap, num_to_add),
+                utils.get_from_batch(action, num_b4_wrap, num_to_add),
                 reward[num_b4_wrap:],
                 done[num_b4_wrap:],
                 discount[num_b4_wrap:],
-                **get_from_batch(kwargs, num_b4_wrap, num_to_add),
+                **utils.get_from_batch(kwargs, num_b4_wrap, num_to_add),
             )
         else:
             # Just add to the buffer
             start = self._idx
             end = self._idx + num_to_add
-            set_in_batch(self._obs_buffer, obs, start, end)
-            set_in_batch(self._action_buffer, action, start, end)
-            set_in_batch(self._reward_buffer, reward, start, end)
-            set_in_batch(self._done_buffer, done, start, end)
-            set_in_batch(self._discount_buffer, discount, start, end)
+            utils.set_in_batch(self._obs_buffer, obs, start, end)
+            utils.set_in_batch(self._action_buffer, action, start, end)
+            utils.set_in_batch(self._reward_buffer, reward, start, end)
+            utils.set_in_batch(self._done_buffer, done, start, end)
+            utils.set_in_batch(self._discount_buffer, discount, start, end)
 
             for k, v in kwargs.items():
                 if k not in self._kwarg_buffers:
-                    sample_value = get_from_batch(v, 0) if num_to_add > 1 else v
-                    self._kwarg_buffers[k] = np_dataset_alloc(sample_value, self._capacity)
-                set_in_batch(self._kwarg_buffers[k], v, start, end)
+                    sample_value = utils.get_from_batch(v, 0) if num_to_add > 1 else v
+                    self._kwarg_buffers[k] = utils.np_dataset_alloc(sample_value, self._capacity)
+                    print("[ReplayBuffer] Allocated", self._kwarg_buffers[k].bytes / 1024**3, "GB")
+                utils.set_in_batch(self._kwarg_buffers[k], v, start, end)
 
             self._idx = (self._idx + num_to_add) % self._capacity
             self._size = min(self._size + num_to_add, self._capacity)
@@ -363,12 +445,12 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         """
         assert self._size != 0, "Trying to flat save a buffer with no data."
         data = {
-            "obs": get_from_batch(self._obs_buffer, 0, self._size),
-            "action": get_from_batch(self._action_buffer, 0, self._size),
+            "obs": utils.get_from_batch(self._obs_buffer, 0, self._size),
+            "action": utils.get_from_batch(self._action_buffer, 0, self._size),
             "reward": self._reward_buffer[: self._size],
             "done": self._done_buffer[: self._size],
             "discount": self._discount_buffer[: self._size],
-            "kwargs": get_from_batch(self._kwarg_buffers, 0, self._size),
+            "kwargs": utils.get_from_batch(self._kwarg_buffers, 0, self._size),
         }
         os.makedirs(path, exist_ok=True)
         ep_len = len(data["reward"])
@@ -394,10 +476,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             except:
                 pass
 
-    def _fetch(self) -> None:
-        """
-        Fetches data from the storage path
-        """
+    def _fetch_online(self) -> None:
         ep_filenames = sorted([os.path.join(self.storage_path, f) for f in os.listdir(self.storage_path)], reverse=True)
         fetched_size = 0
         for ep_filename in ep_filenames:
@@ -418,45 +497,53 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
                 except OSError:
                     pass
 
-    @property
-    def is_parallel(self) -> bool:
-        return not hasattr(self, "_is_serial")
+        # Return the fetched size
+        return fetched_size
 
-    def setup(self):
+    def _fetch_offline(self) -> None:
         """
-        This function will "setup" the replay buffer.
-        After calling this we cannot use the buffer in parallel.
+        This simple function fetches a new episode from the offline dataset and adds it to the buffer.
+        This is done for each worker.
         """
-        self._is_serial = True
-        if self.distributed:
-            self._alloc()
+        try:
+            data = next(self._current_data_generator)
+        except StopIteration:
+            self._current_data_generator = self._data_generator()
+            data = next(self._current_data_generator)
+
+        obs, action, reward, done, discount, kwargs = data
+        self._add_to_buffer(obs, action, reward, done, discount, **kwargs)
+        # Return the fetched size
+        return len(reward)
 
     def __iter__(self):
         assert not hasattr(self, "_iterated"), "__iter__ called twice!"
         self._iterated = True
-        worker_info = torch.utils.data.get_worker_info()
-        if hasattr(self, "_is_serial") and self._is_serial:
-            # The buffer has already been alloced.
-            assert worker_info is None, "Cannot use parallel after setting up"
-        else:
-            # If we have not already been setup, alloc the buffer if distributed.
-            if self.distributed:
-                self._alloc()
+        if self.distributed:
+            # Allocate the buffer here.
+            self._alloc()
 
-        # Now setup variables for _fetch
-        if worker_info is None:
-            self._is_serial = True
+        # Setup variables for _fetch_online for getting new online data
+        worker_info = torch.utils.data.get_worker_info()
+        self._is_serial = worker_info is None
         self._num_workers = worker_info.num_workers if worker_info is not None else 1
         self._worker_id = worker_info.id if worker_info is not None else 0
         self._episode_filenames = set()
         self._samples_since_last_load = 0
-
+        self._learning_online = False
         while True:
             yield self.sample(batch_size=self.batch_size, stack=self.stack, pad=self.pad)
-            if self.capacity is not None and self.is_parallel:
+            # Fetch new data...
+            if self._capacity is not None:
                 self._samples_since_last_load += 1
                 if self._samples_since_last_load >= self.fetch_every:
-                    self._fetch()
+                    # Fetch offline data
+                    if not self._loaded_all_offline_data and not self._learning_online:
+                        self._fetch_offline()
+                    if not self._is_serial:  # Do not fetch online data if we are immediately adding to buffer
+                        fetch_size = self._fetch_online()
+                        self._learning_online = fetch_size > 0
+                    # Reset the fetch counter for this worker.
                     self._samples_since_last_load = 0
 
     def _get_one_idx(self, stack: int, pad: int) -> Union[int, np.ndarray]:
@@ -516,17 +603,17 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         obs_idxs = idxs - 1
         next_obs_idxs = idxs + self.nstep - 1
 
-        obs = get_from_batch(self._obs_buffer, obs_idxs)
-        action = get_from_batch(self._action_buffer, idxs)
+        obs = utils.get_from_batch(self._obs_buffer, obs_idxs)
+        action = utils.get_from_batch(self._action_buffer, idxs)
         reward = np.zeros_like(self._reward_buffer[idxs])
         discount = np.ones_like(self._discount_buffer[idxs])
         for i in range(self.nstep):
             reward += discount * self._reward_buffer[idxs + i]
             discount *= self._discount_buffer[idxs + i] * self.discount
 
-        kwargs = get_from_batch(self._kwarg_buffers, next_obs_idxs)
+        kwargs = utils.get_from_batch(self._kwarg_buffers, next_obs_idxs)
         if self.next_obs:
-            kwargs["next_obs"] = get_from_batch(self._obs_buffer, next_obs_idxs)
+            kwargs["next_obs"] = utils.get_from_batch(self._obs_buffer, next_obs_idxs)
 
         batch = dict(obs=obs, action=action, reward=reward, discount=discount, **kwargs)
         if pad > 0:
@@ -643,9 +730,9 @@ class HindsightReplayBuffer(ReplayBuffer):
         next_obs_idxs = idxs + self.nstep - 1
         last_idxs = next_obs_idxs[..., -1] if stack > 1 else next_obs_idxs
 
-        obs = get_from_batch(self._obs_buffer, obs_idxs)
-        action = get_from_batch(self._action_buffer, idxs)
-        kwargs = get_from_batch(self._kwarg_buffers, next_obs_idxs)
+        obs = utils.get_from_batch(self._obs_buffer, obs_idxs)
+        action = utils.get_from_batch(self._action_buffer, idxs)
+        kwargs = utils.get_from_batch(self._kwarg_buffers, next_obs_idxs)
 
         if "horizon" in kwargs:
             horizon = kwargs["horizon"]
@@ -708,14 +795,14 @@ class HindsightReplayBuffer(ReplayBuffer):
         # Write observations
         obs[self.goal_key] = desired
         if self.next_obs:
-            next_obs = get_from_batch(self._obs_buffer, next_obs_idxs)
+            next_obs = utils.get_from_batch(self._obs_buffer, next_obs_idxs)
             next_obs[self.goal_key] = desired
             kwargs["next_obs"] = next_obs
         if self.init_obs:
             init_idxs = self._starts[ep_idxs]
             if stack > 1:
                 init_idxs = np.expand_dims(init_idxs, axis=-1) + np.arange(stack) * self.nstep
-            init_obs = get_from_batch(self._obs_buffer, init_idxs)
+            init_obs = utils.get_from_batch(self._obs_buffer, init_idxs)
             init_obs[self.goal_key] = desired
             kwargs["init_obs"] = init_obs
         if pad > 0:
@@ -726,5 +813,5 @@ class HindsightReplayBuffer(ReplayBuffer):
 
         batch = dict(obs=obs, action=action, reward=reward, discount=discount, **kwargs)
         if batch_size == 1:
-            batch = squeeze(batch, 0)
+            batch = utils.squeeze(batch, 0)
         return batch
