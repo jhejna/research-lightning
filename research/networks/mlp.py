@@ -44,8 +44,12 @@ class MLPEncoder(nn.Module):
             dropout=dropout,
             normalization=normalization,
         )
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
+        self.ortho_init = ortho_init
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
 
     def forward(self, obs):
         return self.mlp(obs)
@@ -76,11 +80,15 @@ class MLPValue(nn.Module):
             self.mlp = EnsembleMLP(observation_space.shape[0], 1, ensemble_size=ensemble_size, **mlp_kwargs)
         else:
             self.mlp = MLP(observation_space.shape[0], 1, **mlp_kwargs)
+        self.ortho_init = ortho_init
+        self.output_gain = output_gain
+        self.reset_parameters()
 
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+            if self.output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=self.output_gain))
 
     def forward(self, obs):
         v = self.mlp(obs).squeeze(-1)  # Remove the last dim
@@ -123,10 +131,15 @@ class ContinuousMLPCritic(nn.Module):
                 **mlp_kwargs,
             )
 
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+        self.ortho_init = ortho_init
+        self.output_gain = output_gain
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+            if self.output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=self.output_gain))
 
     def forward(self, obs: torch.Tensor, action: torch.Tensor) -> torch.Tensor:
         x = torch.cat((obs, action), dim=-1)
@@ -161,10 +174,15 @@ class DiscreteMLPCritic(nn.Module):
             dropout=dropout,
             normalization=normalization,
         )
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+        self.ortho_init = ortho_init
+        self.output_gain = output_gain
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+            if self.output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=self.output_gain))
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.q(obs)
@@ -195,10 +213,15 @@ class ContinuousMLPActor(nn.Module):
             normalization=normalization,
             output_act=output_act,
         )
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+        self.ortho_init = ortho_init
+        self.output_gain = output_gain
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+            if self.output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=self.output_gain))
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.mlp(obs)
@@ -266,11 +289,15 @@ class DiagonalGaussianMLPActor(nn.Module):
             normalization=normalization,
             output_act=output_act,
         )
+        self.ortho_init = ortho_init
+        self.output_gain = output_gain
+        self.reset_parameters()
 
-        if ortho_init:
-            self.apply(partial(weight_init, gain=float(ortho_init)))  # use the fact that True converts to 1.0
-            if output_gain is not None:
-                self.mlp.last_layer.apply(partial(weight_init, gain=output_gain))
+    def reset_parameters(self):
+        if self.ortho_init:
+            self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+            if self.output_gain is not None:
+                self.mlp.last_layer.apply(partial(weight_init, gain=self.output_gain))
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         if self.state_dependent_log_std:

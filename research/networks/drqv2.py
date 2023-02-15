@@ -39,6 +39,9 @@ class DRQV2Encoder(nn.Module):
             nn.Conv2d(32, 32, 3, stride=1),
             nn.ReLU(),
         )
+        self.reset_parameters()
+
+    def reset_parameters(self):
         self.apply(weight_init)
 
     @property
@@ -80,6 +83,9 @@ class DRQV2Critic(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
+        self.reset_parameters()
+
+    def reset_parameters(self):
         self.apply(weight_init)
 
     def forward(self, obs: torch.Tensor, action: torch.Tensor):
@@ -105,6 +111,9 @@ class DRQV2Actor(nn.Module):
             nn.Linear(hidden_dim, action_space.shape[0]),
         )
 
+        self.reset_parameters()
+
+    def reset_parameters(self):
         self.apply(weight_init)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:

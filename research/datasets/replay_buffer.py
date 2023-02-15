@@ -349,7 +349,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             discount = 1.0
 
         # Now we have multiple cases based on the transition type and parallelism of the dataset
-        if self._is_serial:
+        if not hasattr(self, "_is_serial") or self._is_serial:
             # We can add directly to the storage buffers.
             self._add_to_buffer(obs, action, reward, done, discount, **kwargs)
             if self.cleanup:
