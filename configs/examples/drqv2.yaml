@@ -16,15 +16,15 @@ optim_kwargs:
 
 network: ActorCriticPolicy
 network_kwargs:
-  actor_class: DRQV2Actor
+  actor_class: DrQv2Actor
   actor_kwargs:
     feature_dim: 50
-    hidden_dim: 1024
-  critic_class: DRQV2Critic
+    hidden_layers: [1024, 1024]
+  critic_class: DrQv2Critic
   critic_kwargs:
     feature_dim: 50
-    hidden_dim: 1024
-  encoder_class: DRQV2Encoder
+    hidden_layers: [1024, 1024]
+  encoder_class: DrQv2Encoder
 
 env: CheetahRun-vision-v0
 

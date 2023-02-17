@@ -29,21 +29,12 @@ class MLPEncoder(nn.Module):
         observation_space: gym.Space,
         action_space: gym.Space,
         hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
+        **kwargs,
     ):
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
         assert len(hidden_layers) > 1, "Must have at least one hidden layer for a shared MLP Extractor"
-        self.mlp = MLP(
-            observation_space.shape[0],
-            hidden_layers[-1],
-            hidden_layers=hidden_layers[:-1],
-            act=act,
-            dropout=dropout,
-            normalization=normalization,
-        )
+        self.mlp = MLP(observation_space.shape[0], hidden_layers[-1], hidden_layers=hidden_layers[:-1], **kwargs)
         self.ortho_init = ortho_init
         self.reset_parameters()
 
@@ -60,26 +51,19 @@ class MLPValue(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        output_act: Optional[Type[nn.Module]] = None,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
         ensemble_size: int = 1,
+        **kwargs,
     ) -> None:
         super().__init__()
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
 
         self.ensemble_size = ensemble_size
-        mlp_kwargs = dict(
-            hidden_layers=hidden_layers, act=act, dropout=dropout, normalization=normalization, output_act=output_act
-        )
         if self.ensemble_size > 1:
-            self.mlp = EnsembleMLP(observation_space.shape[0], 1, ensemble_size=ensemble_size, **mlp_kwargs)
+            self.mlp = EnsembleMLP(observation_space.shape[0], 1, ensemble_size=ensemble_size, **kwargs)
         else:
-            self.mlp = MLP(observation_space.shape[0], 1, **mlp_kwargs)
+            self.mlp = MLP(observation_space.shape[0], 1, **kwargs)
         self.ortho_init = ortho_init
         self.output_gain = output_gain
         self.reset_parameters()
@@ -102,34 +86,19 @@ class ContinuousMLPCritic(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
         ensemble_size: int = 2,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
-        output_act: Optional[Type[nn.Module]] = None,
+        **kwargs,
     ):
         super().__init__()
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
         self.ensemble_size = ensemble_size
-        mlp_kwargs = dict(
-            hidden_layers=hidden_layers, act=act, dropout=dropout, normalization=normalization, output_act=output_act
-        )
+        input_dim = observation_space.shape[0] + action_space.shape[0]
         if self.ensemble_size > 1:
-            self.q = EnsembleMLP(
-                observation_space.shape[0] + action_space.shape[0],
-                1,
-                ensemble_size=ensemble_size,
-                **mlp_kwargs,
-            )
+            self.q = EnsembleMLP(input_dim, 1, ensemble_size=ensemble_size, **kwargs)
         else:
-            self.q = MLP(
-                observation_space.shape[0] + action_space.shape[0],
-                1,
-                **mlp_kwargs,
-            )
+            self.q = MLP(input_dim, 1, **kwargs)
 
         self.ortho_init = ortho_init
         self.output_gain = output_gain
@@ -158,22 +127,12 @@ class DiscreteMLPCritic(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
+        **kwargs,
     ):
         super().__init__()
-        self.q = MLP(
-            observation_space.shape[0],
-            action_space.n,
-            hidden_layers=hidden_layers,
-            act=act,
-            dropout=dropout,
-            normalization=normalization,
-        )
+        self.q = MLP(observation_space.shape[0], action_space.n, **kwargs)
         self.ortho_init = ortho_init
         self.output_gain = output_gain
         self.reset_parameters()
@@ -193,26 +152,14 @@ class ContinuousMLPActor(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
-        output_act: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
+        **kwargs,
     ):
         super().__init__()
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
 
-        self.mlp = MLP(
-            observation_space.shape[0],
-            action_space.shape[0],
-            hidden_layers=hidden_layers,
-            act=act,
-            dropout=dropout,
-            normalization=normalization,
-            output_act=output_act,
-        )
+        self.mlp = MLP(observation_space.shape[0], action_space.shape[0], **kwargs)
         self.ortho_init = ortho_init
         self.output_gain = output_gain
         self.reset_parameters()
@@ -248,10 +195,6 @@ class DiagonalGaussianMLPActor(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
-        act: Type[nn.Module] = nn.ReLU,
-        dropout: float = 0.0,
-        normalization: Optional[Type[nn.Module]] = None,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
         log_std_bounds: List[int] = [-5, 2],
@@ -259,6 +202,7 @@ class DiagonalGaussianMLPActor(nn.Module):
         squash_normal: bool = True,
         log_std_tanh: bool = True,
         output_act: Optional[Type[nn.Module]] = None,
+        **kwargs,
     ):
         super().__init__()
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
@@ -280,15 +224,7 @@ class DiagonalGaussianMLPActor(nn.Module):
                 torch.zeros(action_space.shape[0]), requires_grad=True
             )  # initialize a single parameter vector
 
-        self.mlp = MLP(
-            observation_space.shape[0],
-            action_dim,
-            hidden_layers=hidden_layers,
-            act=act,
-            dropout=dropout,
-            normalization=normalization,
-            output_act=output_act,
-        )
+        self.mlp = MLP(observation_space.shape[0], action_dim, output_act=output_act, **kwargs)
         self.ortho_init = ortho_init
         self.output_gain = output_gain
         self.reset_parameters()

@@ -19,6 +19,7 @@ class SAC(OffPolicyAlgorithm):
         critic_freq: int = 1,
         actor_freq: int = 1,
         target_freq: int = 2,
+        bc_coeff=0.0,
         **kwargs,
     ):
         # Save values needed for network setup.
@@ -31,6 +32,7 @@ class SAC(OffPolicyAlgorithm):
         self.critic_freq = critic_freq
         self.actor_freq = actor_freq
         self.target_freq = target_freq
+        self.bc_coeff = bc_coeff
         self.target_entropy = -np.prod(self.processor.action_space.low.shape)
         self.action_range = [
             float(self.processor.action_space.low.min()),
@@ -94,6 +96,9 @@ class SAC(OffPolicyAlgorithm):
         q = torch.min(qs, dim=0)[0]
 
         actor_loss = (self.alpha.detach() * log_prob - q).mean()
+        if self.bc_coeff > 0.0:
+            bc_loss = -dist.log_prob(batch["action"]).sum(dim=-1).mean()  # Simple NLL loss.
+            actor_loss = actor_loss + self.bc_coeff * bc_loss
 
         self.optim["actor"].zero_grad(set_to_none=True)
         actor_loss.backward()

@@ -25,12 +25,12 @@ class IQL(OffPolicyAlgorithm):
         beta: float = 1,
         clip_score: float = 100.0,
         sparse_reward: bool = False,
-        encoder_gradients: str = "both",
+        encoder_gradients: str = "critic",
         **kwargs,
     ) -> None:
+        super().__init__(*args, **kwargs)
         assert encoder_gradients in ("actor", "critic", "both")
         self.encoder_gradients = encoder_gradients
-        super().__init__(*args, **kwargs)
         self.tau = tau
         self.target_freq = target_freq
         self.expectile = expectile
@@ -56,7 +56,7 @@ class IQL(OffPolicyAlgorithm):
 
     def setup_optimizers(self) -> None:
         # Default optimizer initialization
-        if self.encoder_gradients == "value" or self.encoder_gradients == "both":
+        if self.encoder_gradients == "critic" or self.encoder_gradients == "both":
             critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())
             actor_params = self.network.actor.parameters()
         elif self.encoder_gradients == "actor":
@@ -102,7 +102,7 @@ class IQL(OffPolicyAlgorithm):
             if self.clip_score is not None:
                 exp_adv = torch.clamp(exp_adv, max=self.clip_score)
 
-        dist = self.network.actor(batch["obs"].detach() if self.encoder_gradients == "value" else batch["obs"])
+        dist = self.network.actor(batch["obs"].detach() if self.encoder_gradients == "critic" else batch["obs"])
         if isinstance(dist, torch.distributions.Distribution):
             bc_loss = -dist.log_prob(batch["action"]).sum(dim=-1)
         elif torch.is_tensor(dist):
