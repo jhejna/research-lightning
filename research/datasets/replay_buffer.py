@@ -269,6 +269,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         worker_info = torch.utils.data.get_worker_info()
         num_workers = 1 if worker_info is None else worker_info.num_workers
         worker_id = 0 if worker_info is None else worker_info.id
+        self._is_serial = worker_info is None
         self._current_data_generator = self._data_generator()
 
         if self.capacity is not None:
@@ -523,9 +524,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             # Allocate the buffer here.
             self._alloc()
 
-        # Setup variables for _fetch_online for getting new online data
+        # Setup variables for _fetch methods for getting new online data
         worker_info = torch.utils.data.get_worker_info()
-        self._is_serial = worker_info is None
         self._num_workers = worker_info.num_workers if worker_info is not None else 1
         self._worker_id = worker_info.id if worker_info is not None else 0
         self._episode_filenames = set()

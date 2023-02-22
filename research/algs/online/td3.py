@@ -109,7 +109,7 @@ class TD3(OffPolicyAlgorithm):
     def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
         all_metrics = {}
 
-        if "obs" not in batch:
+        if "obs" not in batch or step < self.random_steps:
             return all_metrics
 
         batch["obs"] = self.network.encoder(batch["obs"])

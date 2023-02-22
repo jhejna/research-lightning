@@ -32,7 +32,6 @@ class DrQv2Encoder(nn.Module):
             channels = c
         else:
             raise ValueError("Invalid observation space for DRQV2 Image encoder.")
-        assert h == w == 84, "Incorrect spatial dimensions for DRQV2 Encoder"
         self.convnet = nn.Sequential(
             nn.Conv2d(channels, 32, 3, stride=2),
             nn.ReLU(),
@@ -58,7 +57,6 @@ class DrQv2Encoder(nn.Module):
         return gym.spaces.Box(shape=(self.repr_dim,), low=-np.inf, high=np.inf, dtype=np.float32)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        assert obs.dtype == torch.uint8
         if len(obs.shape) == 5:
             b, s, c, h, w = obs.shape
             obs = obs.view(b, s * c, h, w)

@@ -121,7 +121,7 @@ class SAC(OffPolicyAlgorithm):
     def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
         all_metrics = {}
 
-        if "obs" not in batch:
+        if "obs" not in batch or step < self.random_steps:
             return all_metrics
 
         batch["obs"] = self.network.encoder(batch["obs"])
@@ -168,12 +168,3 @@ class SAC(OffPolicyAlgorithm):
         with torch.no_grad():
             action = self.predict(batch, is_batched=False, sample=True)
         return action
-
-    def _validation_step(self, batch: Any):
-        raise NotImplementedError("RL Algorithm does not have a validation dataset.")
-
-    def _save_extras(self) -> Dict:
-        return {"log_alpha": self.log_alpha}
-
-    def _load_extras(self, checkpoint) -> Dict:
-        self.log_alpha.data = checkpoint["log_alpha"].data
