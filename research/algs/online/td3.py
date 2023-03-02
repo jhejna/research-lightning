@@ -76,9 +76,7 @@ class TD3(OffPolicyAlgorithm):
             target_q = batch["reward"] + batch["discount"] * target_q
 
         qs = self.network.critic(batch["obs"], batch["action"])
-        q_loss = (
-            torch.nn.functional.mse_loss(qs, target_q.expand(qs.shape[0], -1), reduction="none").mean(dim=-1).sum()
-        )  # averages over the ensemble. No for loop!
+        q_loss = torch.nn.functional.mse_loss(qs, target_q.expand(qs.shape[0], -1), reduction="none").mean()
 
         self.optim["critic"].zero_grad(set_to_none=True)
         q_loss.backward()

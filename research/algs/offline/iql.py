@@ -81,7 +81,7 @@ class IQL(OffPolicyAlgorithm):
             target_q = self.target_network.critic(batch["obs"], batch["action"])
             target_q = torch.min(target_q, dim=0)[0]
         vs = self.network.value(batch["obs"].detach())  # Always detach for value learning
-        v_loss = iql_loss(vs, target_q.expand(vs.shape[0], -1), self.expectile).mean(dim=-1).sum()
+        v_loss = iql_loss(vs, target_q.expand(vs.shape[0], -1), self.expectile).mean()
 
         # Next, compute the critic loss
         with torch.no_grad():
@@ -92,7 +92,7 @@ class IQL(OffPolicyAlgorithm):
             batch["obs"].detach() if self.encoder_gradients == "actor" else batch["obs"], batch["action"]
         )
 
-        q_loss = torch.nn.functional.mse_loss(qs, target.expand(qs.shape[0], -1), reduction="none").mean(dim=-1).sum()
+        q_loss = torch.nn.functional.mse_loss(qs, target.expand(qs.shape[0], -1), reduction="none").mean()
 
         # Next, update the actor. We detach and use the old value, v for computational efficiency
         # though the JAX IQL recomputes it, while Pytorch IQL versions do not.
