@@ -38,6 +38,7 @@ dataset_kwargs:
   capacity: 1000000
   fetch_every: 1000
   batch_size: 1024
+  distributed: False
 
 processor: null
 
