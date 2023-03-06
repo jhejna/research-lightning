@@ -36,7 +36,7 @@ dataset_kwargs:
   fetch_every: 1000
   batch_size: 256
 
-processor: RandomShiftsAug # Add in the data augmentations!
+processor: RandomCrop # Add in the data augmentations!
 
 trainer_kwargs: # Arguments given to Algorithm.train
   total_steps: 3100000 # The total number of steps to train
