@@ -54,7 +54,7 @@ class OffPolicyAlgorithm(Algorithm):
             metrics["num_ep"] = self._num_ep
             return metrics
 
-        if self._env_steps < self.random_steps:
+        if step < self.random_steps:
             action = self.env.action_space.sample()
         else:
             self.eval()
