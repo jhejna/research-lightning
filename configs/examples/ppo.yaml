@@ -15,7 +15,7 @@ optim: Adam
 optim_kwargs:
   lr: 0.0003
 
-network: ActorCriticPolicy
+network: ActorValuePolicy
 network_kwargs:
   actor_class: DiagonalGaussianMLPActor
   actor_kwargs:
@@ -34,10 +34,6 @@ network_kwargs:
     ortho_init: 1.41421356237
     output_gain: 0.01
 
-batch_size: null # Use serial rollout buffer
-collate_fn: null # The collate function passed to the dataloader. None uses pytorch default.
-checkpoint: null # A checkpoint to initialize the network from.
-
 env: HalfCheetah-v2
 
 dataset: RolloutBuffer
@@ -50,15 +46,18 @@ dataset_kwargs:
 processor: RunningObservationNormalizer
 processor_kwargs:
   clip: 10
+  explicit_update: True
 
-train_kwargs: # Arguments given to Algorithm.train
+trainer_kwargs: # Arguments given to Algorithm.train
   total_steps: 1000000 # The total number of steps to train
   log_freq: 1000 # How often to log values
   eval_freq: 10000 # How often to run evals
+  profile_freq: 100
+  x_axis: env_steps
   eval_fn: eval_policy
   eval_kwargs:
     num_ep: 10 # Number of enviornment episodes to run for evaluation, or -1 if none should be run.
   loss_metric: reward # The validation metric that determines when to save the "best_checkpoint"
-  workers: 0 # Number of dataloader workers.
-  profile_freq: 100
-  x_axis: env_steps
+  train_dataloader_kwargs:
+    num_workers: 0 # Number of dataloader workers.
+    batch_size: null

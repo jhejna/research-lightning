@@ -26,17 +26,11 @@ fi
 
 # First check if we have a GPU available
 if nvidia-smi | grep "CUDA Version"; then
-    if [ -d "/usr/local/cuda-11.3" ]; then
-        export PATH=/usr/local/cuda-11.3/bin:$PATH
-    elif [ -d "/usr/local/cuda-11.1" ]; then
-        export PATH=/usr/local/cuda-11.1/bin:$PATH
-    elif [ -d "/usr/local/cuda-11.0" ]; then
-        export PATH=/usr/local/cuda-11.0/bin:$PATH
-    elif [ -d "/usr/local/cuda-10.2" ]; then
-        export PATH=/usr/local/cuda-10.2/bin:$PATH
+    if [ -d "/usr/local/cuda-11.7" ]; then # This is the only GPU version supported by compile.
+        export PATH=/usr/local/cuda-11.7/bin:$PATH
     elif [ -d "/usr/local/cuda" ]; then
         export PATH=/usr/local/cuda/bin:$PATH
-        echo "Using default CUDA. Compatibility should be verified."
+        echo "Using default CUDA. Compatibility should be verified. torch.compile requires >= 11.7"
     else
         echo "Warning: Could not find a CUDA version but GPU was found."
     fi
@@ -46,3 +40,5 @@ else
     echo "GPU was not found, assuming CPU setup."
     export MUJOCO_GL="osmesa" # glfw doesn't support headless rendering
 fi
+
+export D4RL_SUPPRESS_IMPORT_ERROR=1

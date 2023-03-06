@@ -1,11 +1,15 @@
+from typing import List
+
 import gym
 import numpy as np
 import torch
 from torch import nn
 from torch.nn import functional as F
 
+from .mlp import MLP, EnsembleMLP
 
-def weight_init(m: nn.Module) -> None:
+
+def drqv2_weight_init(m: nn.Module) -> None:
     if isinstance(m, nn.Linear):
         nn.init.orthogonal_(m.weight.data)
         if hasattr(m.bias, "data"):
@@ -17,7 +21,7 @@ def weight_init(m: nn.Module) -> None:
             m.bias.data.fill_(0.0)
 
 
-class DRQV2Encoder(nn.Module):
+class DrQv2Encoder(nn.Module):
     def __init__(self, observation_space: gym.Space, action_space: gym.Space) -> None:
         super().__init__()
         if len(observation_space.shape) == 4:
@@ -28,7 +32,6 @@ class DRQV2Encoder(nn.Module):
             channels = c
         else:
             raise ValueError("Invalid observation space for DRQV2 Image encoder.")
-        assert h == w == 84, "Incorrect spatial dimensions for DRQV2 Encoder"
         self.convnet = nn.Sequential(
             nn.Conv2d(channels, 32, 3, stride=2),
             nn.ReLU(),
@@ -38,12 +41,20 @@ class DRQV2Encoder(nn.Module):
             nn.ReLU(),
             nn.Conv2d(32, 32, 3, stride=1),
             nn.ReLU(),
+            nn.Flatten(),
         )
-        self.apply(weight_init)
+        self.reset_parameters()
+
+        with torch.no_grad():
+            sample = torch.as_tensor(observation_space.sample()[None]) / 255.0 - 0.5
+            self.repr_dim = self.convnet(sample).shape[1]
+
+    def reset_parameters(self):
+        self.apply(drqv2_weight_init)
 
     @property
     def output_space(self) -> gym.Space:
-        return gym.spaces.Box(shape=(32 * 35 * 35,), low=-np.inf, high=np.inf, dtype=np.float32)
+        return gym.spaces.Box(shape=(self.repr_dim,), low=-np.inf, high=np.inf, dtype=np.float32)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         if len(obs.shape) == 5:
@@ -51,64 +62,94 @@ class DRQV2Encoder(nn.Module):
             obs = obs.view(b, s * c, h, w)
         obs = obs / 255.0 - 0.5
         h = self.convnet(obs)
-        h = h.view(h.shape[0], -1)
         return h
 
 
-class DRQV2Critic(nn.Module):
+class DrQv2Critic(nn.Module):
     def __init__(
-        self, observation_space: gym.Space, action_space: gym.Space, feature_dim: int = 50, hidden_dim: int = 1024
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        feature_dim: int = 50,
+        hidden_layers: List[int] = [1024, 1024],
+        ensemble_size: int = 2,
+        **kwargs,
     ):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.Linear(observation_space.shape[0], feature_dim), nn.LayerNorm(feature_dim), nn.Tanh()
         )
+        self.ensemble_size = ensemble_size
+        input_dim = feature_dim + action_space.shape[0]
+        if self.ensemble_size > 1:
+            self.mlp = EnsembleMLP(input_dim, 1, ensemble_size=ensemble_size, hidden_layers=hidden_layers, **kwargs)
+        else:
+            self.mlp = MLP(input_dim, 1, hidden_layers=hidden_layers, **kwargs)
+        self.reset_parameters()
 
-        self.Q1 = nn.Sequential(
-            nn.Linear(feature_dim + action_space.shape[0], hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1),
-        )
+    def reset_parameters(self):
+        self.apply(drqv2_weight_init)
 
-        self.Q2 = nn.Sequential(
-            nn.Linear(feature_dim + action_space.shape[0], hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, 1),
-        )
-
-        self.apply(weight_init)
-
-    def forward(self, obs: torch.Tensor, action: torch.Tensor):
-        h = self.trunk(obs)
-        h_action = torch.cat([h, action], dim=-1)
-        return self.Q1(h_action).squeeze(-1), self.Q2(h_action).squeeze(-1)
+    def forward(self, obs, action):
+        x = self.trunk(obs)
+        x = torch.cat((x, action), dim=-1)
+        q = self.mlp(x).squeeze(-1)  # Remove the last dim
+        if self.ensemble_size == 1:
+            q = q.unsqueeze(0)  # add in the ensemble dim
+        return q
 
 
-class DRQV2Actor(nn.Module):
+class DrQv2Value(nn.Module):
     def __init__(
-        self, observation_space: gym.Space, action_space: gym.Space, feature_dim: int = 50, hidden_dim: int = 1024
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        feature_dim: int = 50,
+        hidden_layers: List[int] = [1024, 1024],
+        ensemble_size: int = 1,
+        **kwargs,
     ):
         super().__init__()
         self.trunk = nn.Sequential(
             nn.Linear(observation_space.shape[0], feature_dim), nn.LayerNorm(feature_dim), nn.Tanh()
         )
+        self.ensemble_size = ensemble_size
+        if self.ensemble_size > 1:
+            self.mlp = EnsembleMLP(feature_dim, 1, ensemble_size=ensemble_size, hidden_layers=hidden_layers, **kwargs)
+        else:
+            self.mlp = MLP(feature_dim, 1, hidden_layers=hidden_layers, **kwargs)
+        self.reset_parameters()
 
-        self.policy = nn.Sequential(
-            nn.Linear(feature_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(inplace=True),
-            nn.Linear(hidden_dim, action_space.shape[0]),
+    def reset_parameters(self):
+        self.apply(drqv2_weight_init)
+
+    def forward(self, obs):
+        v = self.trunk(obs)
+        v = self.mlp(v).squeeze(-1)  # Remove the last dim
+        if self.ensemble_size == 1:
+            v = v.unsqueeze(0)  # add in the ensemble dim
+        return v
+
+
+class DrQv2Actor(nn.Module):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        feature_dim: int = 50,
+        hidden_layers: List[int] = [1024, 1024],
+        **kwargs,
+    ):
+        super().__init__()
+        self.trunk = nn.Sequential(
+            nn.Linear(observation_space.shape[0], feature_dim), nn.LayerNorm(feature_dim), nn.Tanh()
         )
+        self.mlp = MLP(feature_dim, action_space.shape[0], hidden_layers=hidden_layers, **kwargs)
+        self.reset_parameters()
 
-        self.apply(weight_init)
+    def reset_parameters(self):
+        self.apply(drqv2_weight_init)
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        h = self.trunk(obs)
-        mu = self.policy(h)
-        mu = torch.tanh(mu)
-        return mu
+        x = self.trunk(obs)
+        return self.mlp(x)

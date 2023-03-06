@@ -1,6 +1,6 @@
 name: research
 channels:
-  - pytorch
+  - pytorch-nightly
   - nvidia
   - defaults
 dependencies:
@@ -14,14 +14,14 @@ dependencies:
 
   # pytorch
   - pytorch
-  - cudatoolkit=11.3
+  - pytorch-cuda=11.7
   - torchvision
   - torchtext
+  - torchaudio
 
   # NP Family
   - numpy
   - scipy
-  - networkx
   - scikit-image
 
   # IO
@@ -49,3 +49,4 @@ dependencies:
       - gym<=0.24.1
       - dm_control
       - mujoco-py<2.2,>=2.1
+      - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl

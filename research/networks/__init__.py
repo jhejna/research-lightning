@@ -1,5 +1,5 @@
 # Register Network Classes here.
-from .base import ActorCriticPolicy
+from .base import ActorCriticPolicy, ActorValuePolicy, ActorCriticValuePolicy, ActorPolicy
 from .mlp import (
     ContinuousMLPActor,
     ContinuousMLPCritic,
@@ -8,4 +8,4 @@ from .mlp import (
     MLPEncoder,
     DiscreteMLPCritic,
 )
-from .drqv2 import DRQV2Encoder, DRQV2Critic, DRQV2Actor
+from .drqv2 import DrQv2Encoder, DrQv2Critic, DrQv2Value, DrQv2Actor
