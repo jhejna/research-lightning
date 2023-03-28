@@ -27,8 +27,8 @@ network_kwargs:
     log_std_tanh: False
     ortho_init: 1.41421356237
     output_gain: 0.01
-  critic_class: MLPValue
-  critic_kwargs:
+  value_class: MLPValue
+  value_kwargs:
     hidden_layers: [64, 64]
     act: ["import", "torch.nn", "Tanh"]
     ortho_init: 1.41421356237

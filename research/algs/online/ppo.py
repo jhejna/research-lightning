@@ -73,7 +73,7 @@ class PPO(Algorithm):
                 # Collect relevant information
                 action = dist.sample()
                 log_prob = dist.log_prob(action).sum(dim=-1)
-                value = self.network.value(latent)
+                value = self.network.value(latent).mean(dim=0)  # Account for Ensemble Dim
                 # Unprocess back to numpy
                 action = utils.to_np(utils.get_from_batch(action, 0))
                 log_prob = utils.to_np(utils.get_from_batch(log_prob, 0))
@@ -109,7 +109,7 @@ class PPO(Algorithm):
                     if isinstance(self.processor, RunningObservationNormalizer):
                         self.processor.update(obs)
                     batch = self.format_batch(dict(obs=obs))  # Preprocess obs
-                    terminal_value = self.network.value(self.network.encoder(batch["obs"]))
+                    terminal_value = self.network.value(self.network.encoder(batch["obs"])).mean(dim=0)  # Ensemble Avg
                     terminal_value = utils.to_np(utils.get_from_batch(terminal_value, 0))
                 reward += self.dataset.discount * terminal_value
                 obs = self.env.reset()
@@ -163,9 +163,10 @@ class PPO(Algorithm):
         policy_loss_2 = advantage * torch.clamp(ratio, 1 - self.clip_range, 1 + self.clip_range)
         policy_loss = -torch.min(policy_loss_1, policy_loss_2).mean()
 
+        last_value = batch["value"].expand(value.shape[0], -1)
         if self.clip_range_vf is not None:
-            value = batch["value"] + torch.clamp(value - batch["value"], -self.clip_range_vf, self.clip_range_vf)
-        value_loss = self.value_criterion(batch["returns"], value)
+            value = last_value + torch.clamp(value - last_value, -self.clip_range_vf, self.clip_range_vf)
+        value_loss = self.value_criterion(batch["returns"].expand(value.shape[0], -1), value)
 
         entropy_loss = -torch.mean(dist.entropy().sum(dim=-1))
 

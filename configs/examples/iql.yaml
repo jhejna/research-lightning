@@ -38,6 +38,7 @@ dataset: D4RLDataset
 dataset_kwargs:
   d4rl_path: ../datasets/d4rl/
   name: hopper-medium-replay-v2
+  distributed: False
   batch_size: 256
   stack: 1
   pad: 0
