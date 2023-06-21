@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Tuple
+from collections.abc import Iterable
+from typing import Any, Dict, Optional, Tuple
 
 import gym
 import numpy as np
@@ -10,6 +11,7 @@ import torchvision
 def get_transforms(transforms):
     assembled_transforms = []
     for transform_name, transform_kwargs in transforms:
+        transform_kwargs = {} if transform_kwargs is None else transform_kwargs
         transform = vars(torchvision.transforms)[transform_name](**transform_kwargs)
         assembled_transforms.append(transform)
     return torchvision.transforms.Compose(assembled_transforms)
@@ -22,8 +24,8 @@ class TorchVisionDataset(torch.utils.data.Dataset):
         action_space: gym.Space,
         dataset: str,
         root: str,
-        transform: List[Tuple[str, Dict]] = [
-            ("ToTensor", {}),
+        transform: Iterable[Tuple[str, Optional[Dict]]] = [
+            ("ToTensor", None),
         ],
         **kwargs,
     ):

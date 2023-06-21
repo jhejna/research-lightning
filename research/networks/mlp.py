@@ -1,10 +1,9 @@
-from typing import List
+from collections.abc import Iterable
 
 import gym
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from .common import MLP as mlp_extractor
 
@@ -19,7 +18,7 @@ class MLP(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
+        hidden_layers: Iterable[int] = (256, 256),
         act: torch.nn.Module = nn.ReLU,
     ):
         super().__init__()
