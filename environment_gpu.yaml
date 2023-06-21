@@ -1,6 +1,6 @@
 name: research
 channels:
-  - pytorch-nightly
+  - pytorch
   - nvidia
   - default
 dependencies:
