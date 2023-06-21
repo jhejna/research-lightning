@@ -1,5 +1,4 @@
 import collections
-import itertools
 from typing import Any, Dict, Optional
 
 import gym

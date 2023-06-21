@@ -6,7 +6,6 @@ import numpy as np
 import torch
 
 from research.networks.base import ActorCriticPolicy
-from research.utils.utils import to_device, to_tensor
 
 from ..off_policy_algorithm import OffPolicyAlgorithm
 
@@ -27,8 +26,8 @@ class TruncatedNormal(torch.distributions.Normal):
         x = x - x.detach() + clamped_x.detach()
         return x
 
-    def sample(self, clip=None, sample_shape=torch.Size()):
-        shape = self._extended_shape(sample_shape)
+    def sample(self, clip=None, sample_shape=None):
+        shape = self._extended_shape(torch.Size() if sample_shape is None else sample_shape)
         eps = torch.distributions.utils._standard_normal(shape, dtype=self.loc.dtype, device=self.loc.device)
         eps *= self.scale
         if clip is not None:

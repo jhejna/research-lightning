@@ -1,10 +1,9 @@
-from typing import List
+from collections.abc import Iterable
 
 import gym
 import numpy as np
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from .mlp import MLP, EnsembleMLP
 
@@ -71,7 +70,7 @@ class DrQv2Critic(nn.Module):
         observation_space: gym.Space,
         action_space: gym.Space,
         feature_dim: int = 50,
-        hidden_layers: List[int] = [1024, 1024],
+        hidden_layers: Iterable[int] = (1024, 1024),
         ensemble_size: int = 2,
         **kwargs,
     ):
@@ -105,7 +104,7 @@ class DrQv2Value(nn.Module):
         observation_space: gym.Space,
         action_space: gym.Space,
         feature_dim: int = 50,
-        hidden_layers: List[int] = [1024, 1024],
+        hidden_layers: Iterable[int] = (1024, 1024),
         ensemble_size: int = 1,
         **kwargs,
     ):
@@ -137,7 +136,7 @@ class DrQv2Actor(nn.Module):
         observation_space: gym.Space,
         action_space: gym.Space,
         feature_dim: int = 50,
-        hidden_layers: List[int] = [1024, 1024],
+        hidden_layers: Iterable[int] = (1024, 1024),
         **kwargs,
     ):
         super().__init__()

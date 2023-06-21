@@ -4,7 +4,7 @@ import d4rl
 import gym
 import numpy as np
 
-from .replay_buffer import HindsightReplayBuffer, ReplayBuffer
+from .replay_buffer import ReplayBuffer
 
 
 class D4RLDataset(ReplayBuffer):

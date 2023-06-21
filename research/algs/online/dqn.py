@@ -1,7 +1,6 @@
 import random
 from typing import Any, Dict, Type
 
-import gym
 import numpy as np
 import torch
 

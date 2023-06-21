@@ -468,11 +468,11 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             for path in paths:
                 try:
                     os.remove(path)
-                except:
+                except OSError:
                     pass
             try:
                 os.rmdir(self.storage_path)
-            except:
+            except OSError:
                 pass
 
     def _fetch_online(self) -> None:
@@ -566,7 +566,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             np.any(self._done_buffer[done_idxs], axis=-1)
         )  # Compute along the done axis, not the index axis.
 
-        valid_idxs = idxs[valid == True]  # grab only the idxs that are still valid.
+        valid_idxs = idxs[valid is True]  # grab only the idxs that are still valid.
         if len(valid_idxs) < batch_size and depth < 20:  # try a max of 20 times
             print(
                 "[research ReplayBuffer] Buffer Sampler did not recieve batch_size number of valid indices. Consider"

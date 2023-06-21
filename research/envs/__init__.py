@@ -1,12 +1,12 @@
 # Register environment classes here
-from .base import Empty
+# Register the DM Control environments.
+from dm_control import suite
 
 # If we want to register environments in gym.
 # These will be loaded when we import the research package.
 from gym.envs import register
 
-# Register the DM Control environments.
-from dm_control import suite
+from .base import Empty
 
 # Custom DM Control domains can be registered as follows:
 # from . import <custom dm_env module>

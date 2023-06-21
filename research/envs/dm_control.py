@@ -50,7 +50,7 @@ class ActionRepeatWrapper(dm_env.Environment):
     def step(self, action):
         reward = 0.0
         discount = 1.0
-        for i in range(self._num_repeats):
+        for _i in range(self._num_repeats):
             time_step = self._env.step(action)
             reward += (time_step.reward or 0.0) * discount
             discount *= time_step.discount

@@ -1,10 +1,10 @@
+from collections.abc import Iterable
 from functools import partial
-from typing import List, Optional, Type
+from typing import Optional, Type
 
 import gym
 import torch
 from torch import distributions, nn
-from torch.nn import functional as F
 
 from .common import MLP, EnsembleMLP, LinearEnsemble
 
@@ -28,7 +28,7 @@ class MLPEncoder(nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        hidden_layers: List[int] = [256, 256],
+        hidden_layers: Iterable[int] = (256, 256),
         ortho_init: bool = False,
         **kwargs,
     ):
@@ -197,7 +197,7 @@ class DiagonalGaussianMLPActor(nn.Module):
         action_space: gym.Space,
         ortho_init: bool = False,
         output_gain: Optional[float] = None,
-        log_std_bounds: List[int] = [-5, 2],
+        log_std_bounds: Iterable[int] = (-5, 2),
         state_dependent_log_std: bool = True,
         squash_normal: bool = True,
         log_std_tanh: bool = True,

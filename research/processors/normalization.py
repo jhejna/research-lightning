@@ -1,4 +1,4 @@
-from typing import Dict, List, Union
+from typing import Dict, List, Optional, Union
 
 import gym
 import numpy as np
@@ -76,19 +76,19 @@ class RunningObservationNormalizer(Processor):
         epsilon: float = 1e-7,
         clip: float = 10,
         explicit_update: bool = False,
-        paired_keys: List[str] = [],
+        paired_keys: Optional[List[str]] = None,
     ) -> None:
         super().__init__(observation_space, action_space)
+        self.paired_keys = set() if paired_keys is None else set(paired_keys)
         if isinstance(observation_space, gym.spaces.Dict):
             assert all([isinstance(space, gym.spaces.Box) for space in observation_space.values()])
             self.rms = {
                 k: RunningMeanStd(space.shape, epsilon=epsilon)
                 for k, space in observation_space.items()
-                if k not in paired_keys
+                if k not in self.paired_keys
             }
-            if len(paired_keys) > 0:
+            if len(self.paired_keys) > 0:
                 self.rms["paired"] = RunningMeanStd(observation_space[paired_keys[0]].shape, epsilon=epsilon)
-            self.paired_keys = set(paired_keys)
         elif isinstance(observation_space, gym.spaces.Box):
             self.rms = RunningMeanStd(observation_space.shape, epsilon=epsilon)
         else:

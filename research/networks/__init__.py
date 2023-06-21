@@ -1,11 +1,11 @@
 # Register Network Classes here.
-from .base import ActorCriticPolicy, ActorValuePolicy, ActorCriticValuePolicy, ActorPolicy
+from .base import ActorCriticPolicy, ActorCriticValuePolicy, ActorPolicy, ActorValuePolicy
+from .drqv2 import DrQv2Actor, DrQv2Critic, DrQv2Encoder, DrQv2Value
 from .mlp import (
     ContinuousMLPActor,
     ContinuousMLPCritic,
     DiagonalGaussianMLPActor,
-    MLPValue,
-    MLPEncoder,
     DiscreteMLPCritic,
+    MLPEncoder,
+    MLPValue,
 )
-from .drqv2 import DrQv2Encoder, DrQv2Critic, DrQv2Value, DrQv2Actor
