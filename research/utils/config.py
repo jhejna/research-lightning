@@ -254,7 +254,7 @@ class Config(BareConfig):
         # Returns a Trainer Object that can be used to train a model
         if (
             self["trainer_kwargs"].get("eval_fn", None) is None
-            or self["trainer_kwargs"].get("subproc_eval", False) == True
+            or self["trainer_kwargs"].get("subproc_eval", False) is True
         ):
             eval_env = None
         else:

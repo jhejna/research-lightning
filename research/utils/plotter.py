@@ -26,7 +26,7 @@ def plot_run(
     name: str,
     ax=None,
     x_key: str = "step",
-    y_keys: List[str] = ["validation/loss"],
+    y_keys: Optional[List[str]] = None,
     window_size: int = 1,
     max_x_value: Optional[int] = None,
     **kwargs,
@@ -35,6 +35,7 @@ def plot_run(
         assert LOG_FILE_NAME in os.listdir(path), (
             "Did not find log file for " + path + ", found " + " ".join(os.listdir(path))
         )
+    y_keys = ["validation/loss"] if y_keys is None else y_keys
     for y_key in y_keys:
         xs, ys = [], []
         label = name + " " + y_key if len(y_keys) > 1 else name

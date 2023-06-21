@@ -1,7 +1,8 @@
 import csv
 import os
 from abc import ABC, abstractmethod
-from typing import Any, List
+from collections.abc import Iterable
+from typing import Any
 
 from torch.utils.tensorboard import SummaryWriter
 
@@ -110,7 +111,7 @@ class WandBWriter(Writer):
 
 
 class Logger(object):
-    def __init__(self, path: str, writers: List[str] = ["tb", "csv"]):
+    def __init__(self, path: str, writers: Iterable[str] = ("tb", "csv")):
         self.writers = []
         for writer in writers:
             self.writers.append({"tb": TensorBoardWriter, "csv": CSVWriter, "wandb": WandBWriter}[writer](path))

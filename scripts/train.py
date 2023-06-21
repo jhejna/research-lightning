@@ -10,7 +10,7 @@ def try_wandb_setup(path, config):
     if wandb_api_key is not None and wandb_api_key != "":
         try:
             import wandb
-        except:
+        except ImportError:
             return
         project_dir = os.path.dirname(os.path.dirname(__file__))
         wandb.init(

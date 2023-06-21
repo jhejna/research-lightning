@@ -74,11 +74,11 @@ class Trainer(object):
         benchmark: bool = False,
         subproc_eval: bool = False,
         torch_compile: bool = False,
-        torch_compile_kwargs: Dict = {},
+        torch_compile_kwargs: Optional[Dict] = None,
         eval_fn: Optional[Any] = None,
-        eval_kwargs: Dict = {},
-        train_dataloader_kwargs: Dict = {},
-        validation_dataloader_kwargs: Dict = {},
+        eval_kwargs: Optional[Dict] = None,
+        train_dataloader_kwargs: Optional[Dict] = None,
+        validation_dataloader_kwargs: Optional[Dict] = None,
     ) -> None:
         self._model = None
         self.eval_env = eval_env
@@ -95,20 +95,20 @@ class Trainer(object):
 
         # Performance parameters
         self.benchmark = benchmark
-        assert subproc_eval == False, "Subproc eval not yet supported"
-        assert torch_compile == False, "Torch Compile currently exhibits bugs. Do not use."
+        assert subproc_eval is False, "Subproc eval not yet supported"
+        assert torch_compile is False, "Torch Compile currently exhibits bugs. Do not use."
         self.torch_compile = torch_compile
-        self.torch_compile_kwargs = torch_compile_kwargs
+        self.torch_compile_kwargs = {} if torch_compile_kwargs is None else torch_compile_kwargs
 
         # Eval parameters
         self.eval_fn = eval_fn
-        self.eval_kwargs = eval_kwargs
+        self.eval_kwargs = {} if eval_kwargs is None else eval_kwargs
 
         # Dataloader parameters
         self._train_dataloader = None
-        self.train_dataloader_kwargs = train_dataloader_kwargs
+        self.train_dataloader_kwargs = {} if train_dataloader_kwargs is None else train_dataloader_kwargs
         self._validation_dataloader = None
-        self.validation_dataloader_kwargs = validation_dataloader_kwargs
+        self.validation_dataloader_kwargs = {} if validation_dataloader_kwargs is None else validation_dataloader_kwargs
         self._validation_iterator = None
 
     def set_model(self, model: Algorithm):
@@ -195,7 +195,7 @@ class Trainer(object):
 
             if wandb.run is not None:
                 writers.append("wandb")
-        except:
+        except ImportError:
             pass
 
         logger = Logger(path=path, writers=writers)

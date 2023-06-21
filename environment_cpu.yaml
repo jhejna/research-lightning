@@ -1,6 +1,6 @@
 name: research
 channels:
-  - pytorch-nightly
+  - pytorch
   - default
 dependencies:
   - python

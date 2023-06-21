@@ -4,7 +4,7 @@ Examples are as follows:
 1. Normalization
 2. Image Augmentations applied on the entire batch at once.
 """
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import gym
 import torch
@@ -68,7 +68,7 @@ class ComposeProcessor(Processor):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        processors: List[Tuple[str, Dict]] = [("IdentityProcessor", {})],
+        processors: List[Tuple[str, Optional[Dict]]] = (("IdentityProcessor", None),),
     ):
         super().__init__(observation_space, action_space)
         created_processors = []
