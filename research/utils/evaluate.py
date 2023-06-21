@@ -7,8 +7,6 @@ import imageio
 import numpy as np
 import torch
 
-from . import utils
-
 MAX_METRICS = {"success", "is_success", "completions"}
 LAST_METRICS = {"goal_distance"}
 MEAN_METRICS = {"discount"}

@@ -192,13 +192,13 @@ def np_dataset_alloc(
         return {k: np_dataset_alloc(v, capacity, begin_pad=begin_pad, end_pad=end_pad) for k, v in space.items()}
     elif isinstance(space, (gym.spaces.Box, np.ndarray)):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
-        return np.empty((capacity,) + begin_pad + space.shape + end_pad, dtype=dtype)
+        return np.empty((capacity, *begin_pad, *space.shape, *end_pad), dtype=dtype)
     elif isinstance(space, gym.spaces.Discrete) or isinstance(space, (int, np.int64)):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.int64)
+        return np.empty((capacity, *begin_pad, *end_pad), dtype=np.int64)
     elif isinstance(space, float) or isinstance(space, np.float32):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.float32)
+        return np.empty((capacity, *begin_pad, *end_pad), dtype=np.float32)
     elif isinstance(space, bool):
-        return np.empty((capacity,) + begin_pad + end_pad, dtype=np.bool_)
+        return np.empty((capacity, *begin_pad, *end_pad), dtype=np.bool_)
     else:
         raise ValueError("Invalid space provided to `np_dataset_alloc`")
 

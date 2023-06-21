@@ -4,7 +4,6 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Set, Type, Union
 
 import gym
-import numpy as np
 import torch
 
 from research.processors.base import IdentityProcessor, Processor
@@ -20,18 +19,18 @@ class Algorithm(ABC):
         env: gym.Env,
         network_class: Type[torch.nn.Module],
         dataset_class: Union[Type[torch.utils.data.IterableDataset], Type[torch.utils.data.Dataset]],
-        network_kwargs: Dict = {},
-        dataset_kwargs: Dict = {},
+        network_kwargs: Optional[Dict] = None,
+        dataset_kwargs: Optional[Dict] = None,
         validation_dataset_class: Optional[
             Union[Type[torch.utils.data.IterableDataset], Type[torch.utils.data.Dataset]]
         ] = None,
         validation_dataset_kwargs: Optional[Dict] = None,
         optim_class: Type[torch.optim.Optimizer] = torch.optim.Adam,
-        optim_kwargs: Dict = {"lr": 0.0001},
-        schedulers_class: Dict = {},
-        schedulers_kwargs: Dict[str, Dict] = {},
+        optim_kwargs: Optional[Dict] = None,
+        schedulers_class: Optional[Dict] = None,
+        schedulers_kwargs: Optional[Dict[str, Dict]] = None,
         processor_class: Optional[Type[Processor]] = None,
-        processor_kwargs: Dict = {},
+        processor_kwargs: Optional[Dict] = None,
         checkpoint: Optional[str] = None,
         device: Union[str, torch.device] = "auto",
     ):
@@ -51,24 +50,25 @@ class Algorithm(ABC):
 
         # Setup the data preprocessor first. Thus, if we need to reference it in network setup we can.
         # Everything here is saved in self.processor
-        self.setup_processor(processor_class, processor_kwargs)
+        self.setup_processor(processor_class, {} if processor_kwargs is None else processor_kwargs)
 
         # Create the network.
+        network_kwargs = {} if network_kwargs is None else network_kwargs
         self.setup_network(network_class, network_kwargs)
 
         # Save values for optimizers, which will be lazily initialized later
         self.optim = {}
         self.optim_class = optim_class
-        self.optim_kwargs = optim_kwargs
+        self.optim_kwargs = {"lr": 0.0001} if optim_kwargs is None else optim_kwargs
 
         # Save values for schedulers, which will be lazily initialized later
         self.schedulers = {}
-        self.schedulers_class = schedulers_class
-        self.schedulers_kwargs = schedulers_kwargs
+        self.schedulers_class = {} if schedulers_class is None else schedulers_class
+        self.schedulers_kwargs = {} if schedulers_kwargs is None else schedulers_kwargs
 
         # Save values for datasets, which will be lazily initialized later
         self.dataset_class = dataset_class
-        self.dataset_kwargs = dataset_kwargs
+        self.dataset_kwargs = {} if dataset_kwargs is None else dataset_kwargs
         self.validation_dataset_class = validation_dataset_class
         self.validation_dataset_kwargs = validation_dataset_kwargs
 
@@ -228,7 +228,7 @@ class Algorithm(ABC):
         else:
             self.validation_dataset = None
 
-    def save(self, path: str, extension: str, metadata: Dict = {}) -> None:
+    def save(self, path: str, extension: str, metadata: Optional[Dict] = None) -> None:
         """
         Saves a checkpoint of the model and the optimizers
         """
@@ -246,7 +246,7 @@ class Algorithm(ABC):
                 save_dict[k] = attr
 
         # Add the metadata
-        save_dict["metadata"] = metadata
+        save_dict["metadata"] = {} if metadata is None else metadata
         save_path = os.path.join(path, extension)
         if not save_path.endswith(".pt"):
             save_path += ".pt"

@@ -11,7 +11,7 @@ class MLP(nn.Module):
         self,
         input_dim: int,
         output_dim: int,
-        hidden_layers: List[int] = [256, 256],
+        hidden_layers: List[int] = (256, 256),
         act: nn.Module = nn.ReLU,
         dropout: float = 0.0,
         normalization: Optional[Type[nn.Module]] = None,
@@ -86,12 +86,12 @@ class LinearEnsemble(nn.Module):
         if self.bias is not None:
             nn.init.uniform_(self.bias, -std, std)
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        if len(input.shape) == 2:
-            input = input.repeat(self.ensemble_size, 1, 1)
-        elif len(input.shape) > 3:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if len(x.shape) == 2:
+            x = x.repeat(self.ensemble_size, 1, 1)
+        elif len(x.shape) > 3:
             raise ValueError("LinearEnsemble layer does not support inputs with more than 3 dimensions.")
-        return torch.baddbmm(self.bias, input, self.weight)
+        return torch.baddbmm(self.bias, x, self.weight)
 
     def extra_repr(self) -> str:
         return "ensemble_size={}, in_features={}, out_features={}, bias={}".format(
@@ -129,8 +129,8 @@ class LayerNormEnsemble(nn.Module):
         self.elementwise_affine = elementwise_affine
         self.ensemble_size = ensemble_size
         if self.elementwise_affine:
-            self.weight = nn.Parameter(torch.empty((self.ensemble_size, 1) + self.normalized_shape, **factory_kwargs))
-            self.bias = nn.Parameter(torch.empty((self.ensemble_size, 1) + self.normalized_shape, **factory_kwargs))
+            self.weight = nn.Parameter(torch.empty((self.ensemble_size, 1, *self.normalized_shape), **factory_kwargs))
+            self.bias = nn.Parameter(torch.empty((self.ensemble_size, 1, *self.normalized_shape), **factory_kwargs))
         else:
             self.register_parameter("weight", None)
             self.register_parameter("bias", None)
@@ -162,7 +162,7 @@ class EnsembleMLP(nn.Module):
         input_dim: int,
         output_dim: int,
         ensemble_size: int = 3,
-        hidden_layers: List[int] = [256, 256],
+        hidden_layers: List[int] = (256, 256),
         act: nn.Module = nn.ReLU,
         dropout: float = 0.0,
         normalization: Optional[Type[nn.Module]] = None,

@@ -181,11 +181,11 @@ class Config(object):
 
 
 class Experiment(dict):
-    def __init__(self, bases: List[str], name: Optional[str] = None, paired_keys: List[List[str]] = []):
+    def __init__(self, bases: List[str], name: Optional[str] = None, paired_keys: Optional[List[List[str]]] = None):
         super().__init__()
         self._name = name
         self.bases = bases
-        self.paired_keys = paired_keys
+        self.paired_keys = [] if paired_keys is None else paired_keys
         self._str_vals = dict()
 
     @property
@@ -334,11 +334,11 @@ class Experiment(dict):
                     config_dict = config
                     # Recursively update the current config until we find the value.
                     while len(config_path) > 1:
-                        if not config_path[0] in config_dict:
+                        if config_path[0] not in config_dict:
                             raise ValueError("Experiment specified key not in config: " + str(k))
                         config_dict = config_dict[config_path[0]]
                         config_path.pop(0)
-                    if not config_path[0] in config_dict:
+                    if config_path[0] not in config_dict:
                         raise ValueError("Experiment specified key not in config: " + str(k))
                     # Finally set the value
                     config_dict[config_path[0]] = v

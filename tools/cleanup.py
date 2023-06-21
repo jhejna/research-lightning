@@ -22,7 +22,7 @@ if __name__ == "__main__":
             elif name.startswith("replay_buffer_"):
                 shutil.rmtree(path)
                 replay_buffers_removed += 1
-        except:
+        except OSError:
             continue
 
     print("Finished Cleanup.")
