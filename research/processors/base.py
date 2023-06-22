@@ -47,7 +47,7 @@ class Processor(torch.nn.Module):
         return self._action_space
 
 
-class IdentityProcessor(Processor):
+class Identity(Processor):
     """
     This processor just performs the identity operation
     """
@@ -59,7 +59,7 @@ class IdentityProcessor(Processor):
         return batch
 
 
-class ComposeProcessor(Processor):
+class Compose(Processor):
     """
     This Processor Composes multiple processors
     """
@@ -68,7 +68,7 @@ class ComposeProcessor(Processor):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        processors: List[Tuple[str, Optional[Dict]]] = (("IdentityProcessor", None),),
+        processors: List[Tuple[str, Optional[Dict]]] = (("Identity", None),),
     ):
         super().__init__(observation_space, action_space)
         created_processors = []

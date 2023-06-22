@@ -45,9 +45,9 @@ def plot_run(
                 continue
             df = pd.read_csv(os.path.join(path, LOG_FILE_NAME))
             if y_key not in df:
-                print("[research] WARNING: y_key was not in run, skipping plot", path)
+                print("[research] WARNING: y_key was not in run, skipping", path)
                 continue
-            x, y = moving_avg(df[x_key].to_numpy(), df[y_key].to_numpy(), window_size=window_size)
+            x, y = df[x_key].to_numpy(), df[y_key].to_numpy()
             assert len(x) == len(y)
             if max_x_value is not None:
                 y = y[x <= max_x_value]  # need to set y value first
@@ -59,15 +59,29 @@ def plot_run(
             print("[research], WARNING: had no runs for y_key", y_key, "skipping.")
             continue
 
+        # Determine if we should trim runs to make sure it works for table printing
+        force_table = False
+        if force_table:
+            min_x = max((x[0] for x in xs))
+            xs, ys = zip(*[(x[np.where(x == min_x)[0][0] :], y[np.where(x == min_x)[0][0] :]) for x, y in zip(xs, ys)])
+            min_len = min((len(x) for x in xs))
+            xs = [x[:min_len] for x in xs]
+            ys = [y[:min_len] for y in ys]
+
+        # Run smoothing
+        xs, ys = zip(*[moving_avg(x, y, window_size=window_size) for x, y in zip(xs, ys)])
+
         # Compute the table statistics for printing if all runs have finished.
         if all(len(xs[0]) == len(x) for x in xs):
             xs = np.stack(xs, axis=0)  # Shape (Seeds, Length)
             ys = np.stack(ys, axis=0)
             assert np.all(xs[0:1] == xs), "X Values must be the same"
             means = np.mean(ys, axis=0)
-            mean = np.max(means)
-            std = np.std(ys[:, np.argmax(means)])
-            print("{:.2f} $\\pm$ {:.2f}".format(mean, std), label)
+            stds = np.std(ys, axis=0)
+            max_mean = np.max(means)
+            max_std = stds[np.argmax(means)]
+            print("Max: {:.1f} $\\pm$ {:.1f}".format(max_mean * 100, max_std * 100), label)
+            print("Last:", means[-1], stds[-1], label)
             xs = xs.flatten()
             ys = ys.flatten()
         else:
@@ -118,7 +132,7 @@ def create_plot(
             continue
         elif LOG_FILE_NAME not in os.listdir(path):
             # If we have multiple seeds in the same directory, add them to a list.
-            run_paths = [os.path.join(path, run) for run in os.listdir(path)]
+            run_paths = [os.path.join(path, run) for run in os.listdir(path) if "seed" in run]
         else:
             run_paths = [path]
         plot_run(run_paths, label, ax=ax, color=color_map[label], **kwargs)
@@ -241,8 +255,8 @@ def plot_from_config(config_path: str) -> None:
 
     # If the legend is set to the bottom do it here
     if legend_pos == "bottom":
-        bbox_offset = -0.08
-        rect_offset = 0.12
+        bbox_offset = -0.07
+        rect_offset = 0.11
         handles, labels = ax.get_legend_handles_labels()
         fig.legend(
             handles,
