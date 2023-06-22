@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Set, Type, Union
 import gym
 import torch
 
-from research.processors.base import IdentityProcessor, Processor
+from research.processors.base import Identity, Processor
 from research.utils import utils
 
 
@@ -167,7 +167,7 @@ class Algorithm(ABC):
 
     def setup_processor(self, processor_class: Optional[Type[Processor]], processor_kwargs: Dict) -> None:
         if processor_class is None:
-            self.processor = IdentityProcessor(self.env.observation_space, self.env.action_space)
+            self.processor = Identity(self.env.observation_space, self.env.action_space)
         else:
             self.processor = processor_class(self.env.observation_space, self.env.action_space, **processor_kwargs)
 
@@ -193,7 +193,7 @@ class Algorithm(ABC):
             self.optim[k] = self.optim_class(parameters, **self.optim_kwargs)
 
     def setup_schedulers(self):
-        assert len(self.schedulers) == 0, "setup_optimizers called twice!"
+        assert len(self.schedulers) == 0, "setup_schedulers called twice!"
         for k in self.schedulers_class.keys():
             if self.schedulers_class[k] is not None:
                 assert k in self.optim, "Did not find schedule key in optimizers dict."

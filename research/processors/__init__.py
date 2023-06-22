@@ -1,2 +1,2 @@
 # Register Preprocessors here
-from .base import ComposeProcessor
+from .base import Compose

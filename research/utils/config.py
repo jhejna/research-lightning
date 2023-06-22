@@ -36,6 +36,9 @@ class BareConfig(object):
     This is a bare copy of the config that does not require importing any of the research packages.
     This file has been copied out for use in the tools/trainer etc. to avoid loading heavy packages
     when the goal is just to create configs. It defines no structure.
+
+    There is one caviat: the Config is designed to handle import via a custom ``import'' key.
+    This is handled ONLY at load time.
     """
 
     def __init__(self):
@@ -53,13 +56,22 @@ class BareConfig(object):
         self.config.update(d)
 
     @classmethod
-    def load(cls, path: str) -> "Config":
+    def load(cls, path: str) -> "BareConfig":
         if os.path.isdir(path):
             path = os.path.join(path, "config.yaml")
         with open(path, "r") as f:
             data = yaml.load(f, Loader=yaml.Loader)
+        # Check for imports
         config = cls()
+        if "import" in data:
+            imports = data["import"]
+            imports = [imports] if not isinstance(imports, list) else imports
+            # Load the imports in order
+            for import_path in imports:
+                config.update(BareConfig.load(import_path).config)
+            del data["import"]
         config.update(data)
+        assert "import" not in config
         return config
 
     def get(self, key: str, default: Optional[Any] = None):
