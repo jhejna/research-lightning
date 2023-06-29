@@ -31,11 +31,14 @@ env: CheetahRun-v0
 
 dataset: ReplayBuffer
 dataset_kwargs:
-  discount: 0.99
-  nstep: 1
+  sample_fn: sample_qlearning
+  sample_kwargs:
+    discount: 0.99
+    nstep: 1
+    batch_size: null
   capacity: 1000000
   fetch_every: 1000
-  batch_size: null
+  distributed: true
 
 processor: null
 

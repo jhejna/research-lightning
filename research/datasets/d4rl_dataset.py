@@ -4,7 +4,7 @@ import d4rl
 import gym
 import numpy as np
 
-from .replay_buffer import ReplayBuffer
+from .replay_buffer.buffer import ReplayBuffer
 
 
 class D4RLDataset(ReplayBuffer):
@@ -96,7 +96,7 @@ class D4RLDataset(ReplayBuffer):
                 if "next_observations" in dataset:
                     obs_.append(dataset["next_observations"][i].astype(np.float32))
                 else:
-                    # We need to do somethign to pad to the full length.
+                    # We need to do something to pad to the full length.
                     # The default solution is to get rid of this transtion
                     # but we need a transition with the terminal flag for our replay buffer
                     # implementation to work.
@@ -110,21 +110,24 @@ class D4RLDataset(ReplayBuffer):
                 reward_ = np.array(reward_).astype(np.float32) * self.reward_scale + self.reward_shift
                 discount_ = np.array(discount_).astype(np.float32)
                 done_ = np.array(done_, dtype=np.bool_)
-                kwargs = {}
+
+                data = dict(obs=obs_, action=action_, reward=reward_, done=done_, discount=discount_)
 
                 # Support Decision Transformer.
                 if self.use_rtg:
                     # Compute reward to go
+                    discount = self.sample_fn.keywords.get("discount", 0.99)
                     rtg = np.zeros_like(reward_, dtype=np.float32)
                     rtg[-1] = reward_[-1]
                     for t in reversed(range(reward_.shape[0] - 1)):
-                        rtg[t] = reward_[t] + self.discount * rtg[t + 1]
-                    kwargs["rtg"] = rtg
+                        rtg[t] = reward_[t] + discount * rtg[t + 1]
+                    data["rtg"] = rtg
 
                 if self.use_timesteps:
-                    kwargs["timestep"] = np.arange(len(reward_), dtype=np.int64)
+                    # WARNING: Might be an error in this because of the dummy transition
+                    data["timestep"] = np.arange(len(reward_), dtype=np.int64)
 
-                yield (obs_, action_, reward_, done_, discount_, kwargs)
+                yield data
 
                 # reset the episode trackers
                 episode_step = 0

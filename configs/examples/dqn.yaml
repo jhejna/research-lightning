@@ -24,11 +24,13 @@ env: CartPole-v1
 
 dataset: ReplayBuffer
 dataset_kwargs:
-  discount: 0.99
-  nstep: 1
+  sample_fn: sample_qlearning
+  sample_kwargs:
+    discount: 0.99
+    nstep: 1
+    batch_size: 64
   capacity: 500000
   fetch_every: 500
-  batch_size: 64
 
 processor: null
 

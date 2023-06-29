@@ -3,7 +3,7 @@ from abc import abstractmethod
 import gym
 import numpy as np
 
-from research.datasets.replay_buffer import ReplayBuffer
+from research.datasets import ReplayBuffer
 from research.envs.base import Empty
 
 from .base import Algorithm
@@ -75,7 +75,7 @@ class OffPolicyAlgorithm(Algorithm):
             discount = 1 - float(done)
 
         # Store the consequences.
-        self.dataset.add(next_obs, action, reward, done, discount)
+        self.dataset.add(obs=next_obs, action=action, reward=reward, done=done, discount=discount)
 
         if done:
             self._num_ep += 1
@@ -85,7 +85,7 @@ class OffPolicyAlgorithm(Algorithm):
             metrics["num_ep"] = self._num_ep
             # Reset the environment
             self._current_obs = self.env.reset()
-            self.dataset.add(self._current_obs)  # Add the first timestep
+            self.dataset.add(obs=self._current_obs)  # Add the first timestep
             self._episode_length = 0
             self._episode_reward = 0
         else:

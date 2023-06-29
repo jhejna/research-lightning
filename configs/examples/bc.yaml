@@ -20,10 +20,10 @@ dataset: D4RLDataset
 dataset_kwargs:
   d4rl_path: ../datasets/d4rl/
   name: hopper-medium-expert-v2
-  batch_size: 256
-  stack: 1
-  pad: 0
-  discount: 0.99
+  sample_fn: sample
+  sample_kwargs:
+    batch_size: 256
+  exclude_keys: [reward, discount] # Cannot exclude done.
   normalize_reward: True
   reward_scale: 1000.0 # scale to 1000 like in IQL
   use_rtg: False

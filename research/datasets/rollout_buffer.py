@@ -133,7 +133,7 @@ class RolloutBuffer(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         worker_info = torch.utils.data.get_worker_info()
-        assert worker_info is None, "Rollout Buffer does not support worker parallelism at the moment."
+        assert worker_info is None, "Rollout Buffer does not support worker parallelism."
         # Return Empty Batches if we are not full
         if not self.is_full:
             self._last_batch = True

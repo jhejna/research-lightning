@@ -30,11 +30,13 @@ env: CheetahRun-vision-v0
 
 dataset: ReplayBuffer
 dataset_kwargs:
-  discount: 0.99
-  nstep: 3
+  sample_fn: sample_qlearning
+  sample_kwargs:
+    discount: 0.99
+    nstep: 3
+    batch_size: 256
   capacity: 1000000
   fetch_every: 1000
-  batch_size: 256
 
 processor: RandomCrop # Add in the data augmentations!
 

@@ -39,14 +39,14 @@ dataset_kwargs:
   d4rl_path: ../datasets/d4rl/
   name: hopper-medium-replay-v2
   distributed: False
-  batch_size: 256
-  stack: 1
-  pad: 0
-  discount: 0.99
+  sample_fn: sample_qlearning
+  sample_kwargs:
+    batch_size: 256
+    discount: 0.99
   normalize_reward: True
   reward_scale: 1000.0 # scale to 1000 like in IQL
-  use_rtg: False
-  use_timesteps: False
+  use_rtg: True
+  use_timesteps: True
   action_eps: 0.00001 # necesary to prevent NaN in the dataset.
 
 schedule:
