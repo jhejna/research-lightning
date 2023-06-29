@@ -179,6 +179,24 @@ def concatenate(*args, dim: int = 0):
         raise ValueError("Unsupported type passed to `concatenate`")
 
 
+def append(lst, item):
+    if isinstance(lst, dict):
+        assert isinstance(item, dict)
+        for k in item.keys():
+            append(lst[k], item[k])
+    else:
+        lst.append(item)
+
+
+def extend(lst1, lst2):
+    if isinstance(lst1, dict):
+        assert isinstance(lst2, dict)
+        for k in lst2.keys():
+            extend(lst1[k], lst2[k])
+    else:
+        lst1.extend(lst2)
+
+
 class PrintNode(torch.nn.Module):
     def __init__(self, name: str = ""):
         super().__init__()
@@ -192,7 +210,7 @@ class PrintNode(torch.nn.Module):
 def np_dataset_alloc(
     space: gym.Space, capacity: int, begin_pad: Tuple[int] = tuple(), end_pad: Tuple[int] = tuple()
 ) -> np.ndarray:
-    if isinstance(space, gym.spaces.Dict):
+    if isinstance(space, (dict, gym.spaces.Dict)):
         return {k: np_dataset_alloc(v, capacity, begin_pad=begin_pad, end_pad=end_pad) for k, v in space.items()}
     elif isinstance(space, (gym.spaces.Box, np.ndarray)):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
