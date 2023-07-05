@@ -7,58 +7,55 @@ import torch
 
 def to_device(batch: Any, device: torch.device) -> Any:
     if isinstance(batch, dict):
-        batch = {k: to_device(v, device) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [to_device(v, device) for v in batch]
+        return {k: to_device(v, device) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [to_device(v, device) for v in batch]
     elif isinstance(batch, torch.Tensor):
-        batch = batch.to(device)
+        return batch.to(device)
     elif isinstance(batch, (int, float, type(None))):
-        pass
+        return batch
     else:
         raise ValueError("Unsupported type passed to `to_device`")
-    return batch
 
 
 def to_tensor(batch: Any) -> Any:
     if isinstance(batch, dict):
-        batch = {k: to_tensor(v) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [to_tensor(v) for v in batch]
+        return {k: to_tensor(v) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [to_tensor(v) for v in batch]
     elif isinstance(batch, np.ndarray):
         # Special case to handle float64 -- which we never want to use with pytorch
         if batch.dtype == np.float64:
             batch = batch.astype(np.float32)
-        batch = torch.from_numpy(batch)
+        return torch.from_numpy(batch)
     elif isinstance(batch, (int, float, type(None))):
-        pass
+        return batch
     else:
         raise ValueError("Unsupported type passed to `to_tensor`")
-    return batch
 
 
 def to_np(batch: Any) -> Any:
     if isinstance(batch, dict):
-        batch = {k: to_np(v) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [to_np(v) for v in batch]
+        return {k: to_np(v) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [to_np(v) for v in batch]
     elif isinstance(batch, torch.Tensor):
-        batch = batch.detach().cpu().numpy()
+        return batch.detach().cpu().numpy()
     else:
         raise ValueError("Unsupported type passed to `to_np`")
-    return batch
 
 
 def remove_float64(batch: Any):
     if isinstance(batch, dict):
-        batch = {k: remove_float64(v) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [remove_float64(v) for v in batch]
+        return {k: remove_float64(v) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [remove_float64(v) for v in batch]
     elif isinstance(batch, np.ndarray):
         if batch.dtype == np.float64:
-            batch = batch.astype(np.float32)
+            return batch.astype(np.float32)
     elif isinstance(batch, torch.Tensor):
         if batch.dtype == torch.double:
-            batch = batch.float()
+            return batch.float()
     else:
         raise ValueError("Unsupported type passed to `remove_float64`")
     return batch
@@ -66,54 +63,51 @@ def remove_float64(batch: Any):
 
 def unsqueeze(batch: Any, dim: int) -> Any:
     if isinstance(batch, dict):
-        batch = {k: unsqueeze(v, dim) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [unsqueeze(v, dim) for v in batch]
+        return {k: unsqueeze(v, dim) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [unsqueeze(v, dim) for v in batch]
     elif isinstance(batch, np.ndarray):
-        batch = np.expand_dims(batch, dim)
+        return np.expand_dims(batch, dim)
     elif isinstance(batch, torch.Tensor):
-        batch = batch.unsqueeze(dim)
+        return batch.unsqueeze(dim)
     elif isinstance(batch, (int, float, np.generic)):
-        batch = np.array([batch])
+        return np.array([batch])
     else:
         raise ValueError("Unsupported type passed to `unsqueeze`")
-    return batch
 
 
 def squeeze(batch: Any, dim: int) -> Any:
     if isinstance(batch, dict):
-        batch = {k: squeeze(v, dim) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [squeeze(v, dim) for v in batch]
+        return {k: squeeze(v, dim) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [squeeze(v, dim) for v in batch]
     elif isinstance(batch, np.ndarray):
-        batch = np.squeeze(batch, axis=dim)
+        return np.squeeze(batch, axis=dim)
     elif isinstance(batch, torch.Tensor):
-        batch = batch.squeeze(dim)
+        return batch.squeeze(dim)
     else:
         raise ValueError("Unsupported type passed to `squeeze`")
-    return batch
 
 
 def get_from_batch(batch: Any, start: Union[int, np.ndarray, torch.Tensor], end: Optional[int] = None) -> Any:
     if isinstance(batch, dict):
-        batch = {k: get_from_batch(v, start, end=end) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [get_from_batch(v, start, end=end) for v in batch]
+        return {k: get_from_batch(v, start, end=end) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [get_from_batch(v, start, end=end) for v in batch]
     elif isinstance(batch, np.ndarray) or isinstance(batch, torch.Tensor):
         if end is None:
-            batch = batch[start]
+            return batch[start]
         else:
-            batch = batch[start:end]
+            return batch[start:end]
     else:
         raise ValueError("Unsupported type passed to `get_from_batch`")
-    return batch
 
 
 def set_in_batch(batch: Any, value: Any, start: int, end: Optional[int] = None) -> None:
     if isinstance(batch, dict):
         for k, v in batch.items():
             set_in_batch(v, value[k], start, end=end)
-    elif isinstance(batch, list) or isinstance(batch, tuple):
+    elif isinstance(batch, (list, tuple)):
         for v in batch:
             set_in_batch(v, value, start, end=end)
     elif isinstance(batch, np.ndarray) or isinstance(batch, torch.Tensor):
@@ -127,13 +121,13 @@ def set_in_batch(batch: Any, value: Any, start: int, end: Optional[int] = None) 
 
 def batch_copy(batch: Any) -> Any:
     if isinstance(batch, dict):
-        batch = {k: batch_copy(v) for k, v in batch.items()}
-    elif isinstance(batch, list) or isinstance(batch, tuple):
-        batch = [batch_copy(v) for v in batch]
+        return {k: batch_copy(v) for k, v in batch.items()}
+    elif isinstance(batch, (list, tuple)):
+        return [batch_copy(v) for v in batch]
     elif isinstance(batch, np.ndarray):
-        batch = batch.copy()
+        return batch.copy()
     elif isinstance(batch, torch.Tensor):
-        batch = batch.clone()
+        return batch.clone()
     # Note that if we have scalars etc. we just return the value, thus no ending check.
     return batch
 

@@ -16,7 +16,8 @@ class Algorithm(ABC):
 
     def __init__(
         self,
-        env: gym.Env,
+        observation_space: gym.Space,
+        action_space: gym.Space,
         network_class: Type[torch.nn.Module],
         dataset_class: Union[Type[torch.utils.data.IterableDataset], Type[torch.utils.data.Dataset]],
         network_kwargs: Optional[Dict] = None,
@@ -40,13 +41,14 @@ class Algorithm(ABC):
         super().__setattr__("_compiled", False)
 
         # Save relevant values
-        self.env = env
+        self.observation_space = observation_space
+        self.action_space = action_space
         self.optim = {}
 
         # setup devices
         if device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.device = torch.device(device)
+        self._device = torch.device(device)
 
         # Setup the data preprocessor first. Thus, if we need to reference it in network setup we can.
         # Everything here is saved in self.processor
@@ -77,6 +79,10 @@ class Algorithm(ABC):
         # Load a check point if we have one -- using non-strict enforcement.
         if checkpoint is not None:
             self.load(checkpoint, strict=False)
+
+    @property
+    def device(self):
+        return self._device
 
     @property
     def training(self) -> bool:
@@ -167,9 +173,9 @@ class Algorithm(ABC):
 
     def setup_processor(self, processor_class: Optional[Type[Processor]], processor_kwargs: Dict) -> None:
         if processor_class is None:
-            self.processor = Identity(self.env.observation_space, self.env.action_space)
+            self.processor = Identity(self.observation_space, self.action_space)
         else:
-            self.processor = processor_class(self.env.observation_space, self.env.action_space, **processor_kwargs)
+            self.processor = processor_class(self.observation_space, self.action_space, **processor_kwargs)
 
         if self.processor.supports_gpu:  # move it to device if it supports GPU computation.
             self.processor = self.processor.to(self.device)
@@ -180,6 +186,10 @@ class Algorithm(ABC):
         ).to(self.device)
 
     def setup_optimizers(self) -> None:
+        """
+        This is only called by the Trainer, and not called when we load the model.
+        This is done so that inference jobs don't load the optimizer state.
+        """
         # Setup Optimizers
         assert len(self.optim) == 0, "setup_optimizers called twice!"
         for k in self.save_keys:
@@ -199,31 +209,28 @@ class Algorithm(ABC):
                 assert k in self.optim, "Did not find schedule key in optimizers dict."
                 self.schedulers[k] = self.schedulers_class[k](self.optim[k], **self.schedulers_kwargs.get(k, dict()))
 
-    def setup(self):
+    def setup_datasets(self, env: gym.Env, total_steps: int):
         """
         Called after everything else has been setup, right before training starts
+        This is _only_ called by the trainer and is not called by default.
+        This function is responsible for creating the following attributes:
+            self.dataset (required)
+            self.validation_dataset
         """
-        pass
-
-    def setup_train_dataset(self) -> None:
-        """
-        Setup the datasets. Note that this is called only during the learn method and thus doesn't take any arguments.
-        Everything must be saved apriori. This is done to ensure that we don't need to load all of the data to load
-        the model.
-        """
-        assert not hasattr(self, "dataset"), "Setup dataset called twice!"
-        self.dataset = self.dataset_class(self.env.observation_space, self.env.action_space, **self.dataset_kwargs)
-
-    def setup_validation_dataset(self) -> None:
+        assert not hasattr(self, "dataset"), "setup_datasets called twice!"
+        assert not hasattr(self, "validation_dataset"), "setup_datasets called twice!"
+        # Setup the train dataset
+        self.dataset = self.dataset_class(self.observation_space, self.action_space, **self.dataset_kwargs)
+        # Setup the validation dataset
         if self.validation_dataset_class is not None:
             self.validation_dataset = self.validation_dataset_class(
-                self.env.observation_space, self.env.action_space, **self.validation_dataset_kwargs
+                self.observation_space, self.action_space, **self.validation_dataset_kwargs
             )
         elif self.validation_dataset_kwargs is not None:
             validation_dataset_kwargs = copy.deepcopy(self.dataset_kwargs)
             validation_dataset_kwargs.update(self.validation_dataset_kwargs)
             self.validation_dataset = self.dataset_class(
-                self.env.observation_space, self.env.action_space, **validation_dataset_kwargs
+                self.observation_space, self.action_space, **validation_dataset_kwargs
             )
         else:
             self.validation_dataset = None
@@ -335,7 +342,7 @@ class Algorithm(ABC):
         """
         raise NotImplementedError
 
-    def train_extras(self, step: int, total_steps: int) -> Dict:
+    def env_step(self, env: gym.Env, step: int, total_steps: int) -> Dict:
         """
         Perform any extra training operations. This is done before the train step is called.
         A common use case for this would be stepping the environment etc.
