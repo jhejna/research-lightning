@@ -1,4 +1,5 @@
 import copy
+import functools
 import gc
 import importlib
 import os
@@ -20,7 +21,7 @@ from .utils import flatten_dict
 DEFAULT_NETWORK_KEY = "network"
 
 
-def get_env(env: gym.Env, env_kwargs: Dict, wrapper: Optional[gym.Env], wrapper_kwargs: Dict) -> gym.Env:
+def get_env(env: str, env_kwargs: Dict, wrapper: str, wrapper_kwargs: Dict) -> gym.Env:
     # Try to get the environment
     try:
         env = vars(research.envs)[env](**env_kwargs)
@@ -182,36 +183,69 @@ class Config(BareConfig):
             )
         super().__setitem__(key, value)
 
-    def get_train_env(self):
+    def get_train_env_fn(self):
+        """
+        Returns a function that generates a training environment, or None if no training environment is used.
+        """
         assert self.parsed
-        # We need to return an environment with the correct spaces
-        # If we don't have a train env, use the eval env to create one.
         if self["env"] is None:
-            # Construct an empty env with the same state and action space as the eval env.
-            assert self["eval_env"] is not None, "If no train env, must have eval_env"
-            # Note that we can't call self.get_eval_env here because that returns None under certain conditions.
-            eval_env = self.get_eval_env()
-            env = research.envs.base.Empty(
-                observation_space=eval_env.observation_space, action_space=eval_env.action_space
-            )
-            del eval_env
-            gc.collect()  # manually run the garbage collector.
-            return env
+            return None
         else:
-            return get_env(self["env"], self["env_kwargs"], self["wrapper"], self["wrapper_kwargs"])
+            return functools.partial(
+                get_env,
+                env=self["env"],
+                env_kwargs=self["env_kwargs"],
+                wrapper=self["wrapper"],
+                wrapper_kwargs=self["wrapper_kwargs"],
+            )
 
-    def get_eval_env(self):
+    def get_eval_env_fn(self):
+        """
+        Returns a function that generates an evaluation environment.
+        Will always return an environment.
+        """
         assert self.parsed
         # Return the evalutaion environment.
         if self["eval_env"] is None:
-            return get_env(self["env"], self["env_kwargs"], self["wrapper"], self["wrapper_kwargs"])
+            env, env_kwargs = self["env"], self["env_kwargs"]
         else:
-            return get_env(self["eval_env"], self["eval_env_kwargs"], self["wrapper"], self["wrapper_kwargs"])
+            env, env_kwargs = self["eval_env"], self["eval_env_kwargs"]
+        return functools.partial(
+            get_env, env=env, env_kwargs=env_kwargs, wrapper=self["wrapper"], wrapper_kwargs=self["wrapper_kwargs"]
+        )
 
-    def get_schedules(self):
+    def get_spaces(self):
+        # Try to get the spaces. Eval env will always return a space.
+        dummy_env = self.get_eval_env_fn()()  # Call the function.
+        observation_space = copy.deepcopy(dummy_env.observation_space)
+        action_space = copy.deepcopy(dummy_env.action_space)
+        dummy_env.close()
+        del dummy_env
+        gc.collect()
+        return observation_space, action_space
+
+    def get_model(
+        self,
+        observation_space: Optional[gym.Space] = None,
+        action_space: Optional[gym.Space] = None,
+        device: Union[str, torch.device] = "auto",
+    ):
         assert self.parsed
 
-        # Fetch the schedulers. If we don't have an optim dict, change it to one.
+        if observation_space is None or action_space is None:
+            observation_space, action_space = self.get_spaces()
+
+        # This function returns the model
+        alg_class = vars(research.algs)[self["alg"]]
+        dataset_class = None if self["dataset"] is None else vars(research.datasets)[self["dataset"]]
+        validation_dataset_class = (
+            None if self["validation_dataset"] is None else vars(research.datasets)[self["validation_dataset"]]
+        )
+        network_class = None if self["network"] is None else vars(research.networks)[self["network"]]
+        optim_class = None if self["optim"] is None else vars(torch.optim)[self["optim"]]
+        processor_class = None if self["processor"] is None else vars(research.processors)[self["processor"]]
+
+        # Fetch the schedulers. If we don't have an schedulers dict, change it to one.
         if not isinstance(self["schedule"], dict):
             schedulers = {DEFAULT_NETWORK_KEY: self["schedule"]}
             schedulers_kwargs = {DEFAULT_NETWORK_KEY: self["schedule_kwargs"]}
@@ -226,23 +260,10 @@ class Config(BareConfig):
                 # Create the lambda function, and pass it in as a keyword arg
                 schedulers_kwargs[k] = dict(lr_lambda=vars(schedules)[self["schedule"]](**schedulers_kwargs[k]))
 
-        return schedulers, schedulers_kwargs
-
-    def get_model(self, device: Union[str, torch.device] = "auto"):
-        assert self.parsed
-        # Return the model
-        alg_class = vars(research.algs)[self["alg"]]
-        dataset_class = None if self["dataset"] is None else vars(research.datasets)[self["dataset"]]
-        validation_dataset_class = (
-            None if self["validation_dataset"] is None else vars(research.datasets)[self["validation_dataset"]]
-        )
-        network_class = None if self["network"] is None else vars(research.networks)[self["network"]]
-        optim_class = None if self["optim"] is None else vars(torch.optim)[self["optim"]]
-        processor_class = None if self["processor"] is None else vars(research.processors)[self["processor"]]
         schedulers_class, schedulers_kwargs = self.get_schedules()
-        env = self.get_train_env()
         algo = alg_class(
-            env,
+            observation_space,
+            action_space,
             network_class,
             dataset_class,
             network_kwargs=self["network_kwargs"],
@@ -261,15 +282,18 @@ class Config(BareConfig):
         )
         return algo
 
-    def get_trainer(self):
-        assert self.parsed
-        # Returns a Trainer Object that can be used to train a model
-        if (
-            self["trainer_kwargs"].get("eval_fn", None) is None
-            or self["trainer_kwargs"].get("subproc_eval", False) is True
-        ):
-            eval_env = None
-        else:
-            eval_env = self.get_eval_env()
+    def get_trainer(
+        self,
+        model=None,
+        observation_space: Optional[gym.Space] = None,
+        action_space: Optional[gym.Space] = None,
+        device: Union[str, torch.device] = "auto",
+    ):
+        if model is None:
+            if observation_space is None or action_space is None:
+                observation_space, action_space = self.get_spaces()
+            model = self.get_model(observation_space=observation_space, action_space=action_space, device=device)
+        train_env_fn = self.get_train_env_fn()
+        eval_env_fn = self.get_eval_env_fn()
         # Return the trainer...
-        return Trainer(eval_env, **self["trainer_kwargs"])
+        return Trainer(model, train_env_fn, eval_env_fn, **self["trainer_kwargs"])
