@@ -1,16 +1,17 @@
 import os
 import random
+import tempfile
 import time
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Union
 
-import gym
 import numpy as np
 import torch
 
-from research.algs.base import Algorithm
+from research.envs.base import EmptyEnv
 
-from . import evaluate
+from . import evaluate, runners
+from .config import Config
 from .logger import Logger
 
 MAX_VALID_METRICS = {"reward", "accuracy", "success", "is_success"}
@@ -62,17 +63,20 @@ def _worker_init_fn(worker_id: int) -> None:
 class Trainer(object):
     def __init__(
         self,
-        eval_env: Optional[gym.Env] = None,
+        model,
+        env_fn: Optional[Callable] = None,
+        eval_env_fn: Optional[Callable] = None,
+        env_runner: Optional[str] = None,
+        eval_env_runner: Optional[str] = None,
         total_steps: int = 1000,
         log_freq: int = 100,
+        env_freq: int = 100,
         eval_freq: int = 1000,
         profile_freq: int = -1,
         checkpoint_freq: Optional[int] = None,
         max_validation_steps: Optional[int] = None,
         loss_metric: Optional[str] = "loss",
-        x_axis: str = "steps",
         benchmark: bool = False,
-        subproc_eval: bool = False,
         torch_compile: bool = False,
         torch_compile_kwargs: Optional[Dict] = None,
         eval_fn: Optional[Any] = None,
@@ -80,22 +84,28 @@ class Trainer(object):
         train_dataloader_kwargs: Optional[Dict] = None,
         validation_dataloader_kwargs: Optional[Dict] = None,
     ) -> None:
-        self._model = None
-        self.eval_env = eval_env
+        self.model = model
+
+        # Environment parameters.
+        self._env = None
+        self.env_fn = env_fn
+        self.env_runner = env_runner
+        self._eval_env = None
+        self.eval_env_fn = eval_env_fn
+        self.eval_env_runner = eval_env_runner
 
         # Logging parameters
         self.total_steps = total_steps
         self.log_freq = log_freq
+        self.env_freq = env_freq
         self.eval_freq = eval_freq
         self.profile_freq = profile_freq
         self.checkpoint_freq = checkpoint_freq
         self.max_validation_steps = max_validation_steps
         self.loss_metric = loss_metric
-        self.x_axis = x_axis
 
         # Performance parameters
         self.benchmark = benchmark
-        assert subproc_eval is False, "Subproc eval not yet supported"
         assert torch_compile is False, "Torch Compile currently exhibits bugs. Do not use."
         self.torch_compile = torch_compile
         self.torch_compile_kwargs = {} if torch_compile_kwargs is None else torch_compile_kwargs
@@ -111,20 +121,41 @@ class Trainer(object):
         self.validation_dataloader_kwargs = {} if validation_dataloader_kwargs is None else validation_dataloader_kwargs
         self._validation_iterator = None
 
-    def set_model(self, model: Algorithm):
-        assert self._model is None, "Model has already been set."
-        self._model = model
+    @property
+    def env(self):
+        """
+        Do this way for lazy init
+        """
+        if self._env is None:
+            env_runner = vars(runners)[self.env_runner] if isinstance(self.env_runner, str) else self.env_runner
+            if env_runner is None:
+                self._env = self.env_fn()
+            else:
+                self._env = env_runner(self.env_fn)
+        return self._env
 
     @property
-    def model(self):
-        if self._model is None:
-            raise ValueError("Model has not yet been set! use `set_model` before calling trainer functionality.")
-        return self._model
+    def eval_env(self):
+        """
+        Do this way for lazy init
+        """
+        if self._eval_env is None:
+            env_runner = (
+                vars(runners)[self.eval_env_runner] if isinstance(self.eval_env_runner, str) else self.eval_env_runner
+            )
+            if env_runner is None:
+                self._eval_env = self.eval_env_fn()
+            else:
+                self._eval_env = env_runner(self.eval_env_fn)
+        return self._eval_env
 
     @property
     def train_dataloader(self) -> torch.utils.data.DataLoader:
+        """
+        Do this way for lazy init
+        """
         if not hasattr(self.model, "dataset"):
-            self.model.setup_train_dataset()
+            raise ValueError("Must call model.setup_datasets before get dataloader!")
         if self.model.dataset is None:
             return None
         if self._train_dataloader is None:
@@ -141,8 +172,11 @@ class Trainer(object):
 
     @property
     def validation_dataloader(self) -> torch.utils.data.DataLoader:
+        """
+        Do this way for lazy init
+        """
         if not hasattr(self.model, "validation_dataset"):
-            self.model.setup_validation_dataset()
+            raise ValueError("Must call model.setup_datasets before get dataloader!")
         if self.model.validation_dataset is None:
             return None
         if self._validation_dataloader is None:
@@ -169,7 +203,6 @@ class Trainer(object):
         self.model.setup_optimizers()
         self.check_compilation()
         self.model.setup_schedulers()
-        self.model.setup()  # perform any other arbitrary setup needs.
         print("[research] Training a model with", self.model.num_params, "trainable parameters.")
         print("[research] Estimated size: {:.2f} GB".format(self.model.nbytes / 1024**3))
 
@@ -178,10 +211,9 @@ class Trainer(object):
             # If so, we can finetune from that initial checkpoint. When we do this we should load strictly.
             # If we can't load it, we should immediately throw an error.
             metadata = self.model.load(os.path.join(path, "final_model.pt"), strict=True)
-            current_step, steps, epochs = metadata["current_step"], metadata["steps"], metadata["epochs"]
-            # Try to load the xaxis value if we need to.
+            step, epoch = metadata["step"], metadata["epoch"]
         else:
-            current_step, steps, epochs = 0, 0, 0
+            step, epoch = 0, 0
 
         # Setup benchmarking.
         if self.benchmark:
@@ -203,91 +235,81 @@ class Trainer(object):
         # Construct all of the metric lists to be used during training
         # Construct all the metric lists to be used during training
         train_metric_lists = defaultdict(list)
-        extras_metric_lists = defaultdict(list)
+        env_metric_lists = defaultdict(list)
         profiling_metric_lists = defaultdict(list)
         # Wrap the functions we use in logging and profile wrappers
         train_step = log_wrapper(self.model.train_step, train_metric_lists)
         train_step = time_wrapper(train_step, "train_step", profiling_metric_lists)
-        extras_step = log_wrapper(self.model.train_extras, extras_metric_lists)
-        extras_step = time_wrapper(extras_step, "extras_step", profiling_metric_lists)
+        env_step = log_wrapper(self.model.env_step, env_metric_lists)
+        env_step = time_wrapper(env_step, "extras_step", profiling_metric_lists)
         format_batch = time_wrapper(self.model.format_batch, "processor", profiling_metric_lists)
 
         # Compute validation trackers
         using_max_valid_metric = self.loss_metric in MAX_VALID_METRICS
         best_valid_metric = -1 * float("inf") if using_max_valid_metric else float("inf")
 
-        # Compute logging frequencies
-        last_train_log = -self.log_freq  # Ensure that we log on the first step
-        last_validation_log = (
-            0 if self.benchmark else -self.eval_freq
-        )  # Ensure that we log the first step, except if we are benchmarking.
-        last_checkpoint = 0  # Start at 1 so we don't log the untrained model.
-        profile = True if self.profile_freq > 0 else False  # must profile to get all keys for csv log
         self.model.train()
 
+        # Setup Loop values
+        env_freq = int(self.env_freq) if self.env_freq >= 1 else 1
+        if self.env is None or isinstance(self.env, EmptyEnv):
+            env_freq = 1000000  # choose a really large value arbitrarily.
+        env_iters = int(1 / self.env_freq) if self.env_freq < 1 else 1
+
+        # Setup datasets
+        self.model.setup_datasets(self.env, self.total_steps)
+
+        profile = True if self.profile_freq > 0 else False  # must profile to get all keys for csv log
         start_time = time.time()
         current_time = start_time
 
-        while current_step <= self.total_steps:
+        while step <= self.total_steps:
             for batch in self.train_dataloader:
                 if profile:
                     profiling_metric_lists["dataset"].append(time.time() - current_time)
 
-                # Run any pre-train steps, like stepping the enviornment or training auxiliary networks.
-                # Realistically this is just going to be used for environment stepping, but hey! Good to have.
-                extras_step(current_step, self.total_steps, timeit=profile)
+                # Run the environment step.
+                if step % env_freq == 0:
+                    for _ in range(env_iters):
+                        env_step(self.env, step, self.total_steps, timeit=profile)
 
                 # Next, format the batch
                 batch = format_batch(batch, timeit=profile)
 
                 # Run the train step
-                train_step(batch, current_step, self.total_steps, timeit=profile)
+                train_step(batch, step, self.total_steps, timeit=profile)
 
                 # Update the schedulers
                 for scheduler in self.model.schedulers.values():
                     scheduler.step()
 
-                steps += 1
-                if self.x_axis == "steps":
-                    new_current_step = steps + 1
-                elif self.x_axis == "epoch":
-                    new_current_step = epochs
-                elif self.x_axis in train_metric_lists:
-                    new_current_step = train_metric_lists[self.x_axis][-1]  # Get the most recent value
-                elif self.x_axis in extras_metric_lists:
-                    new_current_step = extras_metric_lists[self.x_axis][-1]  # Get the most recent value
-                else:
-                    raise ValueError("Could not find train value for x_axis " + str(self.x_axis))
-
                 # Now determine if we should dump the logs
-                if (current_step - last_train_log) >= self.log_freq:
+                if step % self.log_freq == 0:
                     # Record timing metrics
                     current_time = time.time()
-                    logger.record("time/steps", steps)
-                    logger.record("time/epochs", epochs)
-                    logger.record(
-                        "time/steps_per_second", (current_step - last_train_log) / (current_time - start_time)
-                    )
+                    logger.record("time/step", step)
+                    logger.record("time/epoch", epoch)
+                    logger.record("time/steps_per_second", self.log_freq / (current_time - start_time))
                     log_from_dict(logger, profiling_metric_lists, "time")
                     start_time = current_time
                     # Record learning rates
                     for name, scheduler in self.model.schedulers.items():
                         logger.record("lr/" + name, scheduler.get_last_lr()[0])
                     # Record training metrics
-                    log_from_dict(logger, extras_metric_lists, "train_extras")
+                    log_from_dict(logger, env_metric_lists, "env")
                     log_from_dict(logger, train_metric_lists, "train")
-                    logger.dump(step=current_step)
+                    logger.dump(step=step)
                     # Update the last time we logged.
-                    last_train_log = current_step
 
-                if (current_step - last_validation_log) >= self.eval_freq:
+                # Run eval and validation, but skip if benchmark is on.
+                if step % self.eval_freq == 0 and not (step == 0 and self.benchmark):
                     self.model.eval()
                     current_valid_metric = None
-                    model_metadata = dict(current_step=current_step, epochs=epochs, steps=steps)
+                    model_metadata = dict(step=step, epoch=epoch)
 
                     # Run and time validation step
                     current_time = time.time()
-                    validation_metrics = self.validate(path, current_step)
+                    validation_metrics = self.validate(path, step)
                     logger.record("time/validation", time.time() - current_time)
                     if self.loss_metric in validation_metrics:
                         current_valid_metric = validation_metrics[self.loss_metric]
@@ -295,7 +317,7 @@ class Trainer(object):
 
                     # Run and time eval step
                     current_time = time.time()
-                    eval_metrics = self.evaluate(path, current_step)
+                    eval_metrics = self.evaluate(path, step)
                     logger.record("time/eval", time.time() - current_time)
                     if self.loss_metric in eval_metrics:
                         current_valid_metric = eval_metrics[self.loss_metric]
@@ -311,28 +333,26 @@ class Trainer(object):
                         self.model.save(path, "best_model", model_metadata)
 
                     # Eval Logger dump to CSV
-                    logger.dump(step=current_step, eval=True)  # Mark True on the eval flag
+                    logger.dump(step=step, eval=True)  # Mark True on the eval flag
                     # Save the final model
                     self.model.save(path, "final_model", model_metadata)  # Also save the final model every eval period.
                     # Put the model back in train mode.
                     self.model.train()
-                    last_validation_log = current_step
 
-                if self.checkpoint_freq is not None and (current_step - last_checkpoint) >= self.checkpoint_freq:
+                if self.checkpoint_freq is not None and step % self.checkpoint_freq == 0:
                     # Save a checkpoint
-                    model_metadata = dict(current_step=current_step, epochs=epochs, steps=steps)
-                    self.model.save(path, "model_" + str(current_step), model_metadata)
-                    last_checkpoint = current_step
+                    model_metadata = dict(step=step, epoch=epoch)
+                    self.model.save(path, "model_" + str(step), model_metadata)
 
-                current_step = new_current_step  # Update the current step
-                if current_step > self.total_steps:
+                step += 1
+                if step > self.total_steps:
                     break  # We need to break in the middle of an epoch.
 
-                profile = self.profile_freq > 0 and steps % self.profile_freq == 0
+                profile = self.profile_freq > 0 and step % self.profile_freq == 0
                 if profile:
                     current_time = time.time()  # update current time only, not start time
 
-            epochs += 1
+            epoch += 1
 
     def validate(self, path: str, step: int):
         assert not self.model.training
@@ -369,10 +389,55 @@ class Trainer(object):
         return validation_metrics
 
     def evaluate(self, path: str, step: int):
-        assert not self.model.training
-        self.check_compilation()
-        eval_fn = None if self.eval_fn is None else vars(evaluate)[self.eval_fn]
-        if eval_fn is None:
-            return dict()
-        eval_metrics = eval_fn(self.eval_env, self.model, path, step, **self.eval_kwargs)
-        return eval_metrics
+        if isinstance(self.eval_env, runners.AsyncRunner):
+            # We have an async runner, so we'll run the evaluation in a subprocess.
+            if not self.eval_env.started:
+                # Start the process
+                self._eval_checkpoint_dir = tempfile.mkdtemp(prefix="replay_buffer_")
+                self.eval_env.start(
+                    fn=_subproc_eval,
+                    eval_fn=self.eval_fn,
+                    config_path=path,
+                    checkpoint_path=self._eval_checkpoint_dir,
+                    device=self.model.device**self.eval_kwargs,
+                )
+            # Save the model so the eval runner can get it
+            self.model.save(self._eval_checkpoint_dir, str(step), dict(step=step))
+            return self.eval_env()
+        else:
+            assert not self.model.training
+            self.check_compilation()
+            eval_fn = None if self.eval_fn is None else vars(evaluate)[self.eval_fn]
+            if eval_fn is None:
+                return dict()
+            eval_metrics = eval_fn(self.eval_env, self.model, path, step, **self.eval_kwargs)
+            return eval_metrics
+
+
+def _subproc_eval(
+    env_fn, queue, eval_fn: Callable, config_path: str, checkpoint_path: str, device: Union[str, torch.device], **kwargs
+):
+    env = env_fn()
+    # Load the model
+    config = Config.load(config_path)
+    config = config.parse()
+    model = config.get_model(observation_space=env.observation_space, action_space=env.action_space, device=device)
+
+    # Get the evaluation function.
+    eval_fn = None if eval_fn is None else vars(evaluate)[eval_fn]
+
+    while True:
+        # Wait to check if there is a new checkpoint available.
+        checkpoints = [os.path.join(checkpoint_path, f) for f in os.listdir(checkpoint_path)]
+        # Sort the the checkpoints by path
+        checkpoints = sorted(checkpoints, key=lambda x: int(x[:-3]))
+
+        if len(checkpoints) > 0:
+            checkpoint = checkpoints[-1]
+            metadata = model.load(checkpoint)  # load the most recent one
+            eval_metrics = eval_fn(env, model, config_path, metadata["step"], **kwargs)
+            queue.put(eval_metrics)
+            os.remove(checkpoint)  # Delete the checkpoints we don't use.
+
+        # Sleep to make sure we don't use too much process time.
+        time.sleep(3)
