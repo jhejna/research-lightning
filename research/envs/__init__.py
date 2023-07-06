@@ -6,7 +6,7 @@ from dm_control import suite
 # These will be loaded when we import the research package.
 from gym.envs import register
 
-from .base import Empty, EmptyEnv
+from .base import EmptyEnv
 
 # Custom DM Control domains can be registered as follows:
 # from . import <custom dm_env module>
