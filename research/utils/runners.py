@@ -16,7 +16,7 @@ Env runners are used by the Trainer to run the environments.
 They vary, and algorithms can take advantage of them to do special asynchronous work.
 """
 
-__all__ = ["AsyncEnv", "AsyncRunner"]
+__all__ = ["AsyncEnv", "MPRunner"]
 
 
 class CloudpickleWrapper:
@@ -189,7 +189,7 @@ def _async_env_worker(env_fn, pipe, parent_pipe, obs_buffer, action_buffer):
         env.close()
 
 
-class AsyncRunner(object):
+class MPRunner(object):
     """
     A simple class that creates a subprocess to run a function for an environment
     It is given the environment function and the function to call.
@@ -209,7 +209,7 @@ class AsyncRunner(object):
         self._started = False
 
     def start(self, fn: Optional[Callable] = None, **kwargs):
-        assert not self._started, "Cannot start AsyncRunner Twice!"
+        assert not self._started, "Cannot start MPRunner Twice!"
         self._started = True
         # Construct a metrics queue...
         if fn is not None:
@@ -219,7 +219,7 @@ class AsyncRunner(object):
         # Start the MP context
         self._queue = mp.Queue()
         self.process = mp.Process(
-            target=self.fn, name="AsyncRunner", args=(CloudpickleWrapper(self.env_fn), self._queue), kwargs=fn_kwargs
+            target=self.fn, name="MPRunner", args=(CloudpickleWrapper(self.env_fn), self._queue), kwargs=fn_kwargs
         )
         self.process.start()
 
@@ -234,7 +234,9 @@ class AsyncRunner(object):
                 # Try until we except! (Could be the first time, or the last time)
                 # Then return the most recent eval metrics found.
                 metrics = self._queue.get(block=block, timeout=None)
-                assert isinstance(metrics, dict), "AsyncRunner subprocess must add metrics to the queue."
+                assert isinstance(
+                    metrics, dict
+                ), "MPRunner subprocess did not return a metrics dict. It may have failed."
         except queue.Empty:
             return metrics
 
