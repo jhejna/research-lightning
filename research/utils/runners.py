@@ -5,7 +5,7 @@ import multiprocessing as mp
 import queue
 import sys
 from enum import Enum
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 
 import gym
 import numpy as np
@@ -59,7 +59,7 @@ def read_shared_buffer(shared_buffer: Any, space: gym.Space):
     if isinstance(space, (gym.spaces.Dict, dict)):
         return {k: read_shared_buffer(shared_buffer[k], v) for k, v in space.items()}
     elif isinstance(space, (gym.spaces.Box, gym.spaces.Discrete)):
-        return np.frombuffer(shared_buffer.get_obj(), dtype=space.dtype).reshape(space.shape)
+        return np.frombuffer(shared_buffer, dtype=space.dtype).reshape(space.shape)
     else:
         raise ValueError("Encountered invalid location in")
 
@@ -68,7 +68,7 @@ def write_shared_buffer(shared_buffer: Any, space: gym.Space, value: Any):
     if isinstance(space, (gym.spaces.Dict, dict)):
         return {k: write_shared_buffer(shared_buffer[k], v, value[k]) for k, v in space.items()}
     elif isinstance(space, (gym.spaces.Box, gym.spaces.Discrete)):
-        dest = np.frombuffer(shared_buffer.get_obj(), dtype=space.dtype)
+        dest = np.frombuffer(shared_buffer, dtype=space.dtype)
         np.copyto(dest, np.asarray(value, dtype=space.dtype).flatten())
     else:
         raise ValueError("Encountered invalid space in `write_shared_buffer`")
@@ -85,10 +85,11 @@ class AsyncEnv(gym.Env):
     A container for an environment that will be run completely detached in a subprocess.
     """
 
-    def __init__(self, env_fn: Callable, observation_space: gym.Space, action_space: gym.Space):
-        # Fetch the spaces and then delete
-
+    def __init__(
+        self, env_fn: Callable, observation_space: Optional[gym.Space] = None, action_space: Optional[gym.Space] = None
+    ):
         if observation_space is None or action_space is None:
+            # Fetch the spaces and then delete
             dummy_env = env_fn()
             self.observation_space = copy.deepcopy(dummy_env.observation_space)
             self.action_space = copy.deepcopy(dummy_env.action_space)
@@ -137,7 +138,7 @@ class AsyncEnv(gym.Env):
 
     def reset_send(self):
         assert self.state == AsyncState.DEFAULT, "Trying to reset while not in AsycState.DEFAULT"
-        self.parent_pip.send("reset")
+        self.parent_pipe.send("reset")
         self.state = AsyncState.WAITING_RESET
 
     def reset_recv(self):
@@ -155,7 +156,7 @@ class AsyncEnv(gym.Env):
 def _async_env_worker(env_fn, pipe, parent_pipe, obs_buffer, action_buffer):
     env = env_fn()
     parent_pipe.close()  # Close that end of the pipe.
-    action = read_shared_buffer(action_buffer)  # persistent array -- modified by other process!
+    action = read_shared_buffer(action_buffer, env.action_space)  # persistent array -- modified by other process!
     ep_length = 0
     try:
         while True:
@@ -182,22 +183,30 @@ def _async_env_worker(env_fn, pipe, parent_pipe, obs_buffer, action_buffer):
                 raise ValueError("Invalid command sent to subprocess worker.")
 
     except (KeyboardInterrupt, Exception):
+        pipe.send((False, None))
         print(sys.exec_info()[:2])
     finally:
         env.close()
 
 
 class AsyncRunner(object):
-    def __init__(self, env_fn, fn: Optional[Callable] = None, **kwargs):
+    """
+    A simple class that creates a subprocess to run a function for an environment
+    It is given the environment function and the function to call.
+    """
+
+    def __init__(
+        self,
+        env_fn,
+        fn: Optional[Callable] = None,
+        observation_space: Optional[gym.Space] = None,
+        action_space: Optional[gym.Space] = None,
+        **kwargs,
+    ):
         self.env_fn = env_fn
         self.kwargs = kwargs
         self.fn = fn
         self._started = False
-
-    def __setattr__(self, __name: str, __value: Union[str, int, float]) -> None:
-        assert not self._started, "Cannot set attributes of AsyncRunner after the process has started."
-        assert isinstance(__value, (str, int, float)), "Cannot set complex types in AsyncRunner"
-        self.kwargs[__name] = __value
 
     def start(self, fn: Optional[Callable] = None, **kwargs):
         assert not self._started, "Cannot start AsyncRunner Twice!"
@@ -219,12 +228,15 @@ class AsyncRunner(object):
         return self._started
 
     def __call__(self, block=False):
+        metrics = {}
         try:
-            metrics = self._queue.get(block=block, timeout=None)
-            assert isinstance(metrics, dict), "AsyncRunner subprocess must add metrics to the queue."
-            return metrics
+            while True:
+                # Try until we except! (Could be the first time, or the last time)
+                # Then return the most recent eval metrics found.
+                metrics = self._queue.get(block=block, timeout=None)
+                assert isinstance(metrics, dict), "AsyncRunner subprocess must add metrics to the queue."
         except queue.Empty:
-            return {}
+            return metrics
 
     def step(self, *args, **kwargs):
         raise ValueError("Using Async Runner! ")
