@@ -247,20 +247,19 @@ class Config(BareConfig):
 
         # Fetch the schedulers. If we don't have an schedulers dict, change it to one.
         if not isinstance(self["schedule"], dict):
-            schedulers = {DEFAULT_NETWORK_KEY: self["schedule"]}
+            schedulers_class = {DEFAULT_NETWORK_KEY: self["schedule"]}
             schedulers_kwargs = {DEFAULT_NETWORK_KEY: self["schedule_kwargs"]}
         else:
-            schedulers = self["schedule"]
+            schedulers_class = self["schedule"]
             schedulers_kwargs = self["schedule_kwargs"]
 
         # Make sure we fetch the schedule if its provided as a string
-        for k in schedulers.keys():
-            if isinstance(schedulers[k], str):
-                schedulers[k] = torch.optim.lr_scheduler.LambdaLR
+        for k in schedulers_class.keys():
+            if isinstance(schedulers_class[k], str):
                 # Create the lambda function, and pass it in as a keyword arg
-                schedulers_kwargs[k] = dict(lr_lambda=vars(schedules)[self["schedule"]](**schedulers_kwargs[k]))
+                schedulers_kwargs[k] = dict(lr_lambda=vars(schedules)[schedulers_class[k]](**schedulers_kwargs[k]))
+                schedulers_class[k] = torch.optim.lr_scheduler.LambdaLR
 
-        schedulers_class, schedulers_kwargs = self.get_schedules()
         algo = alg_class(
             observation_space,
             action_space,

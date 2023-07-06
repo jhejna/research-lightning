@@ -11,17 +11,18 @@ import torch
 from research.envs.base import EmptyEnv
 
 from . import evaluate, runners
-from .config import Config
 from .logger import Logger
 
 MAX_VALID_METRICS = {"reward", "accuracy", "success", "is_success"}
+LOG_LAST_METRICS = {"step", "steps"}
 
 
 def log_from_dict(logger: Logger, metric_lists: Dict[str, Union[List, float]], prefix: str) -> None:
     keys_to_remove = []
     for metric_name, metric_value in metric_lists.items():
         if isinstance(metric_value, list) and len(metric_value) > 0:
-            logger.record(prefix + "/" + metric_name, np.mean(metric_value))
+            v = metric_value[-1] if metric_name in LOG_LAST_METRICS else np.mean(metric_value)
+            logger.record(prefix + "/" + metric_name, v)
             keys_to_remove.append(metric_name)
         else:
             logger.record(prefix + "/" + metric_name, metric_value)
@@ -70,7 +71,7 @@ class Trainer(object):
         eval_env_runner: Optional[str] = None,
         total_steps: int = 1000,
         log_freq: int = 100,
-        env_freq: int = 100,
+        env_freq: int = 1,
         eval_freq: int = 1000,
         profile_freq: int = -1,
         checkpoint_freq: Optional[int] = None,
@@ -131,7 +132,9 @@ class Trainer(object):
             if env_runner is None:
                 self._env = self.env_fn()
             else:
-                self._env = env_runner(self.env_fn)
+                self._env = env_runner(
+                    self.env_fn, observation_space=self.model.observation_space, action_space=self.model.action_space
+                )
         return self._env
 
     @property
@@ -146,7 +149,11 @@ class Trainer(object):
             if env_runner is None:
                 self._eval_env = self.eval_env_fn()
             else:
-                self._eval_env = env_runner(self.eval_env_fn)
+                self._eval_env = env_runner(
+                    self.eval_env_fn,
+                    observation_space=self.model.observation_space,
+                    action_space=self.model.action_space,
+                )
         return self._eval_env
 
     @property
@@ -241,7 +248,7 @@ class Trainer(object):
         train_step = log_wrapper(self.model.train_step, train_metric_lists)
         train_step = time_wrapper(train_step, "train_step", profiling_metric_lists)
         env_step = log_wrapper(self.model.env_step, env_metric_lists)
-        env_step = time_wrapper(env_step, "extras_step", profiling_metric_lists)
+        env_step = time_wrapper(env_step, "env_step", profiling_metric_lists)
         format_batch = time_wrapper(self.model.format_batch, "processor", profiling_metric_lists)
 
         # Compute validation trackers
@@ -399,7 +406,8 @@ class Trainer(object):
                     eval_fn=self.eval_fn,
                     config_path=path,
                     checkpoint_path=self._eval_checkpoint_dir,
-                    device=self.model.device**self.eval_kwargs,
+                    device=self.model.device,
+                    **self.eval_kwargs,
                 )
             # Save the model so the eval runner can get it
             self.model.save(self._eval_checkpoint_dir, str(step), dict(step=step))
@@ -419,6 +427,8 @@ def _subproc_eval(
 ):
     env = env_fn()
     # Load the model
+    from research.utils.config import Config
+
     config = Config.load(config_path)
     config = config.parse()
     model = config.get_model(observation_space=env.observation_space, action_space=env.action_space, device=device)
@@ -428,16 +438,18 @@ def _subproc_eval(
 
     while True:
         # Wait to check if there is a new checkpoint available.
-        checkpoints = [os.path.join(checkpoint_path, f) for f in os.listdir(checkpoint_path)]
+        checkpoints = [f for f in os.listdir(checkpoint_path)]
         # Sort the the checkpoints by path
         checkpoints = sorted(checkpoints, key=lambda x: int(x[:-3]))
 
         if len(checkpoints) > 0:
-            checkpoint = checkpoints[-1]
+            checkpoint = os.path.join(checkpoint_path, checkpoints[-1])
+            print(checkpoint, checkpoints)
             metadata = model.load(checkpoint)  # load the most recent one
             eval_metrics = eval_fn(env, model, config_path, metadata["step"], **kwargs)
             queue.put(eval_metrics)
-            os.remove(checkpoint)  # Delete the checkpoints we don't use.
+            # Remove all checkpoints
+            [os.remove(os.path.join(checkpoint_path, c)) for c in checkpoints]
 
         # Sleep to make sure we don't use too much process time.
         time.sleep(3)
