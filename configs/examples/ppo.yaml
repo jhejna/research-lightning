@@ -53,7 +53,6 @@ trainer_kwargs: # Arguments given to Algorithm.train
   log_freq: 1000 # How often to log values
   eval_freq: 10000 # How often to run evals
   profile_freq: 100
-  x_axis: env_steps
   eval_fn: eval_policy
   eval_kwargs:
     num_ep: 10 # Number of enviornment episodes to run for evaluation, or -1 if none should be run.

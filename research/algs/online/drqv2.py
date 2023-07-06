@@ -129,8 +129,8 @@ class DRQV2(OffPolicyAlgorithm):
 
         return dict(actor_loss=actor_loss.item(), log_prob=log_prob.mean().item())
 
-    def _get_train_action(self, step: int, total_steps: int) -> np.ndarray:
-        batch = dict(obs=self._current_obs)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        batch = dict(obs=obs)
         with torch.no_grad():
             mu = self.predict(batch)
             mu = torch.as_tensor(mu, device=self.device)

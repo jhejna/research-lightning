@@ -50,7 +50,7 @@ class PPO(Algorithm):
         # Losses
         self.value_criterion = torch.nn.MSELoss()
 
-    def _collect_rollouts(self) -> Dict:
+    def _collect_rollouts(self, env: gym.Env) -> Dict:
         # Setup the dataset and network
         self.dataset.setup()
         self.eval()
@@ -59,7 +59,7 @@ class PPO(Algorithm):
         metrics = dict(reward=[], length=[], success=[])
         ep_reward, ep_length, ep_return, ep_success = 0, 0, 0, False
 
-        obs = self.env.reset()
+        obs = env.reset()
         self.dataset.add(obs=obs)  # Add the first observation
         while not self.dataset.is_full:
             with torch.no_grad():
@@ -79,10 +79,10 @@ class PPO(Algorithm):
                 value = utils.to_np(utils.get_from_batch(value, 0))
                 extras = self._compute_extras(dist)
 
-            if isinstance(self.env.action_space, gym.spaces.Box):  # Clip the actions
-                clipped_action = np.clip(action, self.env.action_space.low, self.env.action_space.high)
+            if isinstance(env.action_space, gym.spaces.Box):  # Clip the actions
+                clipped_action = np.clip(action, env.action_space.low, env.action_space.high)
 
-            obs, reward, done, info = self.env.step(clipped_action)
+            obs, reward, done, info = env.step(clipped_action)
 
             ep_reward += reward
             ep_length += 1
@@ -111,7 +111,7 @@ class PPO(Algorithm):
                     terminal_value = self.network.value(self.network.encoder(batch["obs"])).mean(dim=0)  # Ensemble Avg
                     terminal_value = utils.to_np(utils.get_from_batch(terminal_value, 0))
                 reward += self.dataset.discount * terminal_value
-                obs = self.env.reset()
+                obs = env.reset()
 
             # Note: Everything is from the last observation except for the observation, which is really next_obs
             self.dataset.add(obs=obs, action=action, reward=reward, done=done, value=value, log_prob=log_prob, **extras)
@@ -130,22 +130,30 @@ class PPO(Algorithm):
         # Used for computing extras values for different versions of PPO
         return {}
 
-    def setup(self) -> None:
-        self.setup_train_dataset()
+    def setup_datasets(self, env: gym.Env, total_steps: int):
+        super().setup_datasets(env, total_steps)
         assert isinstance(self.dataset, RolloutBuffer)
         # Logging metrics
         self._env_steps = 0
-        self._collect_rollouts()
         # Track the number of epochs. This is used for training.
         self._epochs = 0
+        self._collect_rollouts(env)
+        self._need_to_collect = False
+
+    def env_step(self, env: gym.Env, step: int, total_steps: int) -> Dict:
+        if self._need_to_collect:
+            self._need_to_collect = False
+            return self._collect_rollouts(env)
+        else:
+            return {}
 
     def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
-        metrics = dict(env_steps=self._env_steps)
+        metrics = {}
+
         self._epochs += int(self.dataset.last_batch)
         if self.dataset.last_batch and self._epochs % self.num_epochs == 0:
             # On the last batch of the epoch recollect data.
-            metrics.update(self._collect_rollouts())
-            return metrics  # Return immediatly so we don't do a gradient step on old data.
+            self._need_to_collect = True
 
         # Run the policy to predict the values, log probs, and entropies
         latent = self.network.encoder(batch["obs"])

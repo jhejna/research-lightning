@@ -1,5 +1,5 @@
 import itertools
-from typing import Dict, Optional, Type
+from typing import Any, Dict, Optional, Type
 
 import numpy as np
 import torch
@@ -155,8 +155,8 @@ class IQL(OffPolicyAlgorithm):
             action = action.clamp(*self.action_range)
         return action
 
-    def _get_train_action(self, step: int, total_steps: int) -> np.ndarray:
-        batch = dict(obs=self._current_obs)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        batch = dict(obs=obs)
         with torch.no_grad():
             action = self.predict(batch, is_batched=False, sample=True)
         return action

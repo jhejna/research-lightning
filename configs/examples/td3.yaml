@@ -35,7 +35,8 @@ dataset_kwargs:
   sample_kwargs:
     discount: 0.99
     nstep: 1
-    batch_size: null
+    batch_size: 1
+    sample_by_timesteps: False
   capacity: 1000000
   fetch_every: 1000
   distributed: true

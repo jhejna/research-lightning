@@ -33,7 +33,7 @@ if seq or stack dims are set to 1, then these parameters are ignored.
 
 
 def _get_ep_idxs(storage: Storage, batch_size: int = 1, sample_by_timesteps: bool = True, min_length: int = 2):
-    if batch_size > 1:
+    if batch_size is None or batch_size > 1:
         ep_idxs = np.arange(len(storage.lengths))[storage.lengths >= min_length]
         if sample_by_timesteps:
             lengths = storage.lengths[ep_idxs]

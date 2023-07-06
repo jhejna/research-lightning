@@ -13,10 +13,8 @@ class DQN(OffPolicyAlgorithm):
     def __init__(
         self,
         *args,
-        train_freq: int = 4,
         target_freq: int = 1000,
         tau: float = 1.0,
-        init_steps: int = 1000,
         max_grad_norm: float = 10,
         eps_start: float = 1.0,
         eps_end: float = 0.05,
@@ -27,10 +25,8 @@ class DQN(OffPolicyAlgorithm):
         super().__init__(*args, **kwargs)
         # Save extra parameters
         self.tau = tau
-        self.train_freq = train_freq
         self.target_freq = target_freq
         self.max_grad_norm = max_grad_norm
-        self.init_steps = init_steps
         self.eps_start = eps_start
         self.eps_end = eps_end
         self.eps_frac = eps_frac
@@ -80,26 +76,25 @@ class DQN(OffPolicyAlgorithm):
     def train_step(self, batch: Any, step: int, total_steps: int) -> Dict:
         all_metrics = {}
 
-        if step < self.init_steps or "obs" not in batch:
+        if step < self.random_steps or "obs" not in batch:
             return all_metrics
 
-        if step % self.train_freq == 0:
-            # Update the agent
-            with torch.no_grad():
-                next_v = self._compute_value(batch)
-                target_q = batch["reward"] + batch["discount"] * next_v
+        # Update the agent
+        with torch.no_grad():
+            next_v = self._compute_value(batch)
+            target_q = batch["reward"] + batch["discount"] * next_v
 
-            q = self.network(batch["obs"])
-            q = torch.gather(q, dim=-1, index=batch["action"].long().unsqueeze(-1)).squeeze(-1)
-            loss = self.loss(q, target_q)
+        q = self.network(batch["obs"])
+        q = torch.gather(q, dim=-1, index=batch["action"].long().unsqueeze(-1)).squeeze(-1)
+        loss = self.loss(q, target_q)
 
-            self.optim["network"].zero_grad(set_to_none=True)
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
-            self.optim["network"].step()
+        self.optim["network"].zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
+        self.optim["network"].step()
 
-            all_metrics["q_loss"] = loss.item()
-            all_metrics["target_q"] = target_q.mean().item()
+        all_metrics["q_loss"] = loss.item()
+        all_metrics["target_q"] = target_q.mean().item()
 
         if step % self.target_freq == 0:
             with torch.no_grad():

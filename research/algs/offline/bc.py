@@ -143,8 +143,8 @@ class BehaviorCloning(OffPolicyAlgorithm):
             pred = super()._predict(batch, **kwargs)
         return pred
 
-    def _get_train_action(self, step: int, total_steps: int) -> np.ndarray:
-        batch = dict(obs=self._current_obs)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        batch = dict(obs=obs)
         with torch.no_grad():
             action = self.predict(batch, is_batched=False)
         return action

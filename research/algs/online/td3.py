@@ -58,8 +58,8 @@ class TD3(OffPolicyAlgorithm):
         critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())
         self.optim["critic"] = self.optim_class(critic_params, **self.optim_kwargs)
 
-    def _get_train_action(self, step: int, total_steps: int) -> np.ndarray:
-        batch = dict(obs=self._current_obs)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        batch = dict(obs=obs)
         with torch.no_grad():
             action = self.predict(batch, is_batched=False)
         action += self.policy_noise * np.random.randn(action.shape[0])
