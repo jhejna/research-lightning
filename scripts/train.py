@@ -39,10 +39,7 @@ if __name__ == "__main__":
         f.write(git_head_hash)
     # Parse the config file to resolve names.
     config = config.parse()
-    # Get the model
-    model = config.get_model(device=args.device)
-    # Get the trainer
-    trainer = config.get_trainer()
+    # Get everything at once.
+    trainer = config.get_trainer(device=args.device)
     # Train the model
-    trainer.set_model(model)
     trainer.train(args.path)
