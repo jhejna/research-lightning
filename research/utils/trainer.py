@@ -226,7 +226,17 @@ class Trainer(object):
         if self.benchmark:
             torch.backends.cudnn.benchmark = True
 
-        # Setup the Logger
+        # Temporary Hack for AsyncEnvs.
+        # I wish there was something better to do here but I've spent too long thinking about
+        # ways to pass the config path. If anyone knows something better, let me know!
+        # Ideas: each runner has a "datapath" you can write to
+        if isinstance(self.env, runners.MPRunner):
+            self.env.kwargs["config_path"] = path
+
+        # Setup datasets
+        self.model.setup_datasets(self.env, self.total_steps)
+
+        # Setup logging
         writers = ["tb", "csv"]
         try:
             # Detect if wandb has been setup. If so, log it.
@@ -255,16 +265,14 @@ class Trainer(object):
         using_max_valid_metric = self.loss_metric in MAX_VALID_METRICS
         best_valid_metric = -1 * float("inf") if using_max_valid_metric else float("inf")
 
-        self.model.train()
-
         # Setup Loop values
         env_freq = int(self.env_freq) if self.env_freq >= 1 else 1
         if self.env is None or isinstance(self.env, EmptyEnv):
             env_freq = 1000000  # choose a really large value arbitrarily.
         env_iters = int(1 / self.env_freq) if self.env_freq < 1 else 1
 
-        # Setup datasets
-        self.model.setup_datasets(self.env, self.total_steps)
+        # Set model to train
+        self.model.train()
 
         profile = True if self.profile_freq > 0 else False  # must profile to get all keys for csv log
         start_time = time.time()
@@ -396,11 +404,11 @@ class Trainer(object):
         return validation_metrics
 
     def evaluate(self, path: str, step: int):
-        if isinstance(self.eval_env, runners.AsyncRunner):
+        if isinstance(self.eval_env, runners.MPRunner):
             # We have an async runner, so we'll run the evaluation in a subprocess.
             if not self.eval_env.started:
                 # Start the process
-                self._eval_checkpoint_dir = tempfile.mkdtemp(prefix="replay_buffer_")
+                self._eval_checkpoint_dir = tempfile.mkdtemp(prefix="checkpoints_")
                 self.eval_env.start(
                     fn=_subproc_eval,
                     eval_fn=self.eval_fn,
@@ -423,7 +431,13 @@ class Trainer(object):
 
 
 def _subproc_eval(
-    env_fn, queue, eval_fn: Callable, config_path: str, checkpoint_path: str, device: Union[str, torch.device], **kwargs
+    env_fn,
+    queue,
+    eval_fn: Callable,
+    config_path: str,
+    checkpoint_path: str,
+    device: Union[str, torch.device] = "auto",
+    **kwargs,
 ):
     env = env_fn()
     # Load the model
@@ -432,24 +446,25 @@ def _subproc_eval(
     config = Config.load(config_path)
     config = config.parse()
     model = config.get_model(observation_space=env.observation_space, action_space=env.action_space, device=device)
+    model.eval()
 
     # Get the evaluation function.
     eval_fn = None if eval_fn is None else vars(evaluate)[eval_fn]
 
     while True:
         # Wait to check if there is a new checkpoint available.
-        checkpoints = [f for f in os.listdir(checkpoint_path)]
+        checkpoints = os.listdir(checkpoint_path)
         # Sort the the checkpoints by path
         checkpoints = sorted(checkpoints, key=lambda x: int(x[:-3]))
 
         if len(checkpoints) > 0:
             checkpoint = os.path.join(checkpoint_path, checkpoints[-1])
-            print(checkpoint, checkpoints)
             metadata = model.load(checkpoint)  # load the most recent one
             eval_metrics = eval_fn(env, model, config_path, metadata["step"], **kwargs)
             queue.put(eval_metrics)
-            # Remove all checkpoints
-            [os.remove(os.path.join(checkpoint_path, c)) for c in checkpoints]
+            # Remove all old checkpoints
+            for checkpoint in checkpoints:
+                os.remove(os.path.join(checkpoint_path, checkpoint))
 
         # Sleep to make sure we don't use too much process time.
         time.sleep(3)
