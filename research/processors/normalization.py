@@ -50,11 +50,11 @@ class RunningMeanStd(torch.nn.Module):
 
     @property
     def mean(self):
-        return self._mean
+        return self._mean.data  # Make sure we return the data, not the parameter!
 
     @property
     def var(self):
-        return self._var
+        return self._var.data  # Make sure we return the data, not the parameter!
 
     @property
     def std(self):

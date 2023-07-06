@@ -1,13 +1,6 @@
 import gym
 import numpy as np
 
-# unused imports for TODO on parallel envs
-# import cloudpickle
-# import multiprocessing as mp
-# from abc import ABC, abstractmethod
-# from research.utils.trainer import get_env
-# from research.utils.utils import np_dataset_alloc, get_from_batch, set_in_batch
-
 
 def _get_space(low=None, high=None, shape=None, dtype=None):
     all_vars = [low, high, shape, dtype]

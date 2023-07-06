@@ -29,11 +29,11 @@ if __name__ == "__main__":
 
     assert args.checkpoint.endswith(".pt"), "Must provide a model checkpoint"
     config = Config.load(os.path.dirname(args.checkpoint))
-    config["checkpoint"] = None  # Set checkpoint to None
+    config["checkpoint"] = None  # Set checkpoint to None, we don't actually need to load it.
 
     # Overrides
     print("Overrides:")
-    for override in args.overrides:
+    for override in args.override:
         print(override)
 
     # Overrides
@@ -51,6 +51,9 @@ if __name__ == "__main__":
     if len(args.override) > 0:
         print(config)
 
+    # Make sure we don't use subprocess evaluation
+    config["trainer_kwargs"]["eval_env_runner"] = None
+
     # Over-write the parameters in the eval_kwargs
     assert config["trainer_kwargs"]["eval_fn"] == "eval_policy", "Evaluate only works with eval_policy for now."
     config["trainer_kwargs"]["eval_kwargs"]["num_ep"] = args.num_ep
@@ -59,15 +62,13 @@ if __name__ == "__main__":
     config["trainer_kwargs"]["eval_kwargs"]["height"] = args.height
     config["trainer_kwargs"]["eval_kwargs"]["every_n_frames"] = args.every_n_frames
     config["trainer_kwargs"]["eval_kwargs"]["terminate_on_success"] = args.terminate_on_success
-
     config = config.parse()
     model = config.get_model(device=args.device)
     metadata = model.load(args.checkpoint)
     trainer = config.get_trainer()
-    trainer.set_model(model)
     # Run the evaluation loop
     os.makedirs(args.path, exist_ok=True)
-    metrics = trainer.evaluate(args.path, metadata["current_step"])
+    metrics = trainer.evaluate(args.path, metadata["step"])
 
     print("[research] Eval policy finished:")
     for k, v in metrics.items():

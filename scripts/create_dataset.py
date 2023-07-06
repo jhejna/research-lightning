@@ -6,8 +6,7 @@ import time
 import gym
 import numpy as np
 
-import research  # To run environment imports
-from research.datasets.replay_buffer import ReplayBuffer
+from research.datasets import ReplayBuffer
 from research.utils.config import Config
 from research.utils.evaluate import EvalMetricTracker
 
@@ -17,7 +16,7 @@ if __name__ == "__main__":
     parser.add_argument("--num-ep", type=int, default=np.inf)
     parser.add_argument("--num-steps", type=int, default=np.inf)
     parser.add_argument(
-        "--shard", action="store_true", default=False, help="Wether or not to shard the dataset into episodes."
+        "--shard", action="store_true", default=False, help="Whether or not to shard the dataset into episodes."
     )
     parser.add_argument("--noise", type=float, default=0.0, help="Gaussian noise std.")
     parser.add_argument("--random-percent", type=float, default=0.0, help="percent of dataset to be purely random.")
@@ -62,20 +61,23 @@ if __name__ == "__main__":
 
     # Parse the config
     config = config.parse()
+
+    # Get the environment
+    env = config.get_train_env_fn()()
+    if env is None:
+        env = config.get_eval_env_fn()()
+
     if args.random_percent < 1.0:
         assert args.checkpoint.endswith(".pt"), "Did not specify checkpoint file."
-        model = config.get_model(device=args.device)
+        model = config.get_model(
+            observation_space=env.observation_space, action_space=env.action_space, device=args.device
+        )
         metadata = model.load(args.checkpoint)
-        env = model.env  # get the env from the model
     else:
         model = None
-        env = config.get_train_env()
-
-    if isinstance(env, research.envs.base.Empty):
-        env = config.get_eval_env()  # Get the eval env instead as it actually exists.
 
     capacity = (env._max_episode_steps + 2) * args.num_ep if args.num_ep < np.inf else args.num_steps
-    capacity = None if args.shard else capacity  # Set capacity to a small value if we are saving eps to disk directly.
+    capacity = 2 if args.shard else capacity  # Set capacity to a small value if we are saving eps to disk directly.
     replay_buffer = ReplayBuffer(
         env.observation_space, env.action_space, capacity=capacity, cleanup=not args.shard, distributed=args.shard
     )
@@ -98,7 +100,7 @@ if __name__ == "__main__":
         ep_length = 0
         obs = env.reset()
         metric_tracker.reset()
-        replay_buffer.add(obs)
+        replay_buffer.add(obs=obs)
         while not done:
             if use_random_actions:
                 action = env.action_space.sample()
@@ -123,7 +125,7 @@ if __name__ == "__main__":
                 discount = 1 - float(done)
 
             # Store the consequences.
-            replay_buffer.add(obs, action, reward, done, discount)
+            replay_buffer.add(obs=obs, action=action, reward=reward, done=done, discount=discount)
             num_steps += 1
 
         num_ep += 1
