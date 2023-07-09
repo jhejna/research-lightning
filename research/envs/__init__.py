@@ -79,5 +79,9 @@ try:
 except ImportError:
     print("[research] Skipping metaworld, package not found.")
 
+try:
+    from .franka import FrankaEnv, FrankaReach
+except ImportError:
+    print("[research] Skipping polymetis, package not found.")
 
 del register
