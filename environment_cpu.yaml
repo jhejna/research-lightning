@@ -6,9 +6,6 @@ dependencies:
   - python
 
   # Development
-  - black
-  - isort
-  - flake8
   - conda-forge::pre-commit
 
   # pytorch
@@ -45,7 +42,7 @@ dependencies:
 
   - pip
   - pip:
-      - gym<=0.24.1
+      - gym==0.23.1
       - dm_control
       - mujoco-py<2.2,>=2.1
       - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl
