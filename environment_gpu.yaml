@@ -2,7 +2,7 @@ name: research
 channels:
   - pytorch
   - nvidia
-  - default
+  - defaults
 dependencies:
   - python
 
