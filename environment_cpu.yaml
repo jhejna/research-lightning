@@ -1,7 +1,7 @@
 name: research
 channels:
   - pytorch
-  - default
+  - defaults
 dependencies:
   - python
 
