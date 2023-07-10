@@ -72,7 +72,7 @@ dependencies:
   - protobuf
   - pymodbus
   - pyserial
-  - spdlog
+  - spdlog=1.10.0=h924138e_0
 
   - pip
   - pip:
@@ -80,3 +80,8 @@ dependencies:
       - mujoco-py<2.2,>=2.0
       - git+https://github.com/Farama-Foundation/Metaworld.git@master#egg=metaworld
       - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl
+      # NOTE: One of these commands (not sure which) installs protobuf OVER the conda version
+      # This will break polymetis. After install run the following commands:
+      # 1. pip uninstall protobuf
+      # 2. conda install protobuf
+      # This should fix the installation
