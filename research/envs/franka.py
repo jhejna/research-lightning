@@ -4,11 +4,13 @@ This environment is for use with a real panda robot and polymetis.
 
 import time
 from abc import abstractmethod, abstractproperty
-from typing import Dict, Optional
+from typing import Optional
 
 import gym
 import numpy as np
+import torch
 from polymetis import GripperInterface, RobotInterface
+from scipy.spatial.transform import Rotation
 
 __all__ = ["FrankaEnv", "FrankaReach"]
 
@@ -17,16 +19,24 @@ class Controller(object):
     # Joint limits from:
     # https://github.com/facebookresearch/fairo/blob/main/polymetis/polymetis/conf/robot_client/franka_hardware.yaml
 
-    EE_LOW = np.array([0.1, -0.4, -0.05, -1.0, -1.0, -1.0, -1.0], dtype=np.float32)
-    EE_HIGH = np.array([1.0, 0.4, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    EE_LOW = np.array([0.1, -0.4, -0.05, -np.pi, -np.pi, -np.pi], dtype=np.float32)
+    EE_HIGH = np.array([1.0, 0.4, 1.0, 1.0, np.pi, np.pi, np.pi], dtype=np.float32)
     JOINT_LOW = np.array([-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159], dtype=np.float32)
     JOINT_HIGH = np.array([2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159], dtype=np.float32)
+    HOME = np.array([0.0, -np.pi / 4.0, 0.0, -3.0 * np.pi / 4.0, 0.0, np.pi / 2.0, np.pi / 4.0], dtype=np.float32)
 
-    def __init__(self, ip_address: str = "localhost"):
+    def __init__(self, ip_address: str = "localhost", control_hz=10.0):
         self.robot = RobotInterface(ip_address=ip_address)
-        self.gripper = GripperInterface()
-        self._max_gripper_width = self._gripper.metadata.max_width
+        self.robot.set_home_pose(torch.Tensor(self.HOME))
+        self.gripper = GripperInterface(ip_address=ip_address)
+        if hasattr(self.gripper, "metadata") and hasattr(self.gripper.metadata, "max_width"):
+            # Should grab this from robotiq2f
+            self._max_gripper_width = self.gripper.metadata.max_width
+        else:
+            self._max_gripper_width = 0.08  # FrankaHand Value
         self._updated = True
+        self._running = False
+        self._control_hz = control_hz
 
     @property
     def action_space(self):
@@ -34,6 +44,20 @@ class Controller(object):
         low = np.concatenate((self.robot_action_space.low, [0]))
         high = np.concatenate((self.robot_action_space.high, [1]))
         return gym.spaces.Box(low=low, high=high, dtype=np.float32)
+
+    @property
+    def observation_space(self):
+        return gym.spaces.Dict(
+            {
+                "joint_positions": gym.spaces.Box(low=self.JOINT_LOW, high=self.JOINT_HIGH, dtype=np.float32),
+                "joint_velocities": gym.spaces.Box(
+                    low=-np.inf * self.JOINT_LOW, high=np.inf * self.JOINT_HIGH, dtype=np.float32
+                ),
+                "ee_pos": gym.spaces.Box(low=self.EE_LOW[:3], high=self.EE_HIGH[:3], dtype=np.float32),
+                "ee_quat": gym.spaces.Box(low=np.zeros(4), high=np.ones(4), dtype=np.float32),
+                "gripper_pos": gym.spaces.Box(low=np.array([0.0]), high=np.array([1.0]), dtype=np.float32),
+            }
+        )
 
     def get_state(self):
         """
@@ -44,13 +68,13 @@ class Controller(object):
         """
         assert self._updated
         robot_state = self.robot.get_robot_state()
-        ee_pos, ee_quat = self.robot.robot_model.forward_kinematics(robot_state.joint_positions)
+        ee_pos, ee_quat = self.robot.robot_model.forward_kinematics(torch.Tensor(robot_state.joint_positions))
         gripper_state = self.gripper.get_state()
         gripper_pos = 1 - (gripper_state.width / self._max_gripper_width)
         self._updated = False
         self.state = dict(
-            joint_positions=robot_state.joint_positions,
-            joint_velocities=robot_state.joint_velocities,
+            joint_positions=np.array(robot_state.joint_positions, dtype=np.float32),
+            joint_velocities=np.array(robot_state.joint_velocities, dtype=np.float32),
             ee_pos=ee_pos,
             ee_quat=ee_quat,
             gripper_pos=gripper_pos,
@@ -63,12 +87,13 @@ class Controller(object):
         robot_action, gripper_action = action[:-1], action[-1]
         # Make sure neither commands block.
         self.update_robot(robot_action)
-        self.update_gripper(gripper_action, blocking=False)
+        self.update_gripper(gripper_action, blocking=True)
         self._updated = True
 
     def reset(self, randomize: bool = False):
-        self.robot.terminate_current_policy()
-        self.update_gripper(0, blocking=True)  # Close the gripper
+        if self._running:
+            self.robot.terminate_current_policy()
+        self.update_gripper(0, blocking=False)  # Close the gripper
         self.robot.go_home()
         if randomize:
             # Get the current position and then add some noise to it
@@ -78,6 +103,8 @@ class Controller(object):
             noise = np.random.uniform(low=-high, high=high, dtype=joint_positions.dtype)
             self.robot.move_to_joint_positions(joint_positions + noise)
         self.start_robot()
+        self._running = True
+        self._updated = True
 
     def update_gripper(self, gripper_action, blocking=False):
         # We always run the gripper in absolute position
@@ -108,32 +135,47 @@ class CartesianPositionController(Controller):
         self.robot.start_cartesian_impedance()
 
     def update_robot(self, action):
-        action = np.clip(action, low=self.EE_LOW, high=self.EE_HIGH)
-        pos, ori = action[:3], action[3:]
-        self.robot.update_desired_ee_pos(pos, ori)
+        action = np.clip(action, self.EE_LOW, self.EE_HIGH)
+        pos, ori = action[:3], Rotation.from_euler("xyz", action[3:]).as_quat()
+        self.robot.update_desired_ee_pose(torch.from_numpy(pos), torch.from_numpy(ori))
 
 
 class CartesianDeltaController(Controller):
-    def __init__(self, *args, max_delta: float = 0.05, **kwargs):
+    """
+    Note that the action space here is smaller since we use deltas in Euler!
+    this is consistent with other delta action spaces.
+    """
+
+    def __init__(self, *args, max_delta: Optional[float] = None, **kwargs):
         super().__init__(*args, **kwargs)
-        self._max_delta = max_delta
+        if max_delta is not None:
+            self._max_delta = max_delta
+        else:
+            # Define dynamically based on control hz.
+            # What do we want the max velocity to be.
+            self._max_delta = 0.1 / self._control_hz
 
     @property
     def robot_action_space(self):
-        high = self._max_delta * np.ones(self.EE_LOW.shape[0], dtype=np.float32)
+        high = self._max_delta * np.ones(6, dtype=np.float32)
+        # Allow more deviation in rotations for now.
+        # I empirically found this value to work OK
+        high[3:] = 3 * self._max_delta
         return gym.spaces.Box(low=-1 * high, high=high, dtype=np.float32)
 
     def start_robot(self):
         self.robot.start_cartesian_impedance()
 
     def update_robot(self, action):
-        action = np.clip(action, low=self.robot_action_space.low, high=self.robot_action_space.high)
+        action = np.clip(action, self.robot_action_space.low, self.robot_action_space.high)
         delta_pos, delta_ori = action[:3], action[3:]
-        # TODO: I'm not sure if direct sum is the correct way to add two orientations.
-        # I think this is wrong, but going with it for now.
         new_pos = self.state["ee_pos"] + delta_pos
-        new_ori = self.state["ee_ori"] + delta_ori
-        self.robot.update_desired_ee_pos(new_pos, new_ori)
+        # TODO: this can be made much faster using purpose build methods instead of scipy.
+        old_rot = Rotation.from_quat(self.state["ee_quat"])
+        delta_rot = Rotation.from_euler("xyz", delta_ori)
+        new_rot = delta_rot * old_rot
+        new_quat = torch.from_numpy(new_rot.as_quat()).float()
+        self.robot.update_desired_ee_pose(new_pos, new_quat)
 
 
 class JointPositionController(Controller):
@@ -145,12 +187,12 @@ class JointPositionController(Controller):
         self.robot.start_joint_impedance()
 
     def update_robot(self, action):
-        action = np.clip(action, low=self.JOINT_LOW, high=self.JOINT_HIGH)
-        self.robot.update_desired_joint_positions(action)
+        action = np.clip(action, self.JOINT_LOW, self.JOINT_HIGH)
+        self.robot.update_desired_joint_positions(torch.from_numpy(action))
 
 
 class JointDeltaController(Controller):
-    def __init__(self, *args, max_delta: float = 0.1, **kwargs):
+    def __init__(self, *args, max_delta: float = 0.05, **kwargs):
         super().__init__(*args, **kwargs)
         self._max_delta = max_delta
 
@@ -163,22 +205,9 @@ class JointDeltaController(Controller):
         self.robot.start_joint_impedance()
 
     def update_robot(self, action):
-        action = np.clip(action, low=self.robot_action_space.low, high=self.robot_action_space.high)
-        self.robot.update_desired_joint_positions(self.state["joint_positions"] + action)
-
-
-class JointVelocityController(Controller):
-    @property
-    def action_space(self):
-        # Return the action space shape WITH Bounds.
-        high = 0.1 * np.ones(self.JOINT_LOW, dtype=np.float32)
-        return gym.spaces.Box(low=-high, high=high, dtype=np.float32)
-
-    def start_robot(self):
-        self.robot.start_joint_veloicty_control()
-
-    def update_robot(self, action):
-        self.robot.update_desired_joint_velocities(action)
+        action = np.clip(action, self.robot_action_space.low, self.robot_action_space.high)
+        new_joint_positions = self.state["joint_positions"] + action
+        self.robot.update_desired_joint_positions(torch.from_numpy(new_joint_positions))
 
 
 def precise_wait(t_end: float, slack_time: float = 0.001):
@@ -190,6 +219,8 @@ def precise_wait(t_end: float, slack_time: float = 0.001):
             time.sleep(t_sleep)
         while time.time() < t_end:
             pass
+    else:
+        print("[Franka] Warning: latentcy larger than desired control hz.")
     return
 
 
@@ -201,21 +232,26 @@ class FrankaEnv(gym.Env):
 
     def __init__(
         self,
-        ip_address: str,
-        controller: str = "cartesian_velocity",
-        control_hz: float = 15.0,
-        camera_kwargs: Optional[Dict] = None,
+        ip_address: str = "localhost",
+        controller: str = "cartesian_delta",
+        control_hz: float = 10.0,
+        horizon: str = 500,
     ):
         self.controller = {
             "cartesian_position": CartesianPositionController,
             "cartesian_delta": CartesianDeltaController,
             "joint_position": JointPositionController,
             "joint_delta": JointDeltaController,
-            "joint_velocity": JointVelocityController,
         }[controller](ip_address=ip_address)
         self.action_space = self.controller.action_space
+        # TODO: update later to modify in addition to proprio space with cameras etc.
+        self.observation_space = self.controller.observation_space
+
+        self.horizon = horizon
+        self._max_episode_steps = horizon
         self.control_hz = float(control_hz)
         self._time = None  # Set time to None.
+        self._steps = 0
 
     def step(self, action):
         # Immediately update with the action
@@ -224,14 +260,15 @@ class FrankaEnv(gym.Env):
         # Wait until we have 15hz since last time.
         precise_wait(self._time + 1 / self.control_hz)
         self._time = time.time()
-
+        self._steps += 1
+        done = self._steps == self.horizon
         state = self.controller.get_state()
-        return state, 0, False, {}
+        return state, 0, done, dict(discount=1.0)
 
     def reset(self):
         self.controller.reset()
-        self.cameras.get_obs(0)
         state = self.controller.get_state()
+        self._steps = 0
         # start the timer.
         self._time = time.time()
         return state
@@ -242,9 +279,9 @@ class FrankaReach(FrankaEnv):
     A simple environment where the goal is for the Franka to reach a specific end effector position.
     """
 
-    def __init__(self, *args, goal_position=(0.5, 0.3, 0.5), **kwargs):
+    def __init__(self, *args, goal_position=(0.5, 0.25, 0.5), horizon=100, **kwargs):
         self._goal_position = np.array(goal_position)
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, horizon=horizon, **kwargs)
 
     def step(self, action):
         state, reward, done, info = super().step(action)
