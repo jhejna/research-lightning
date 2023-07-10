@@ -9,6 +9,11 @@ from .base import EmptyEnv
 __all__ = ["EmptyEnv"]
 
 try:
+    import d4rl
+except ImportError:
+    print("[research] skipping d4rl, package not found.")
+
+try:
     # Register environment classes here
     # Register the DM Control environments.
     from dm_control import suite

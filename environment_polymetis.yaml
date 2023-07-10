@@ -1,0 +1,82 @@
+name: research
+channels:
+  - pytorch
+  - nvidia
+  - fair-robotics
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9 # :( unfortunately locked at this by build deps. Faster to set here than search over versions.
+
+  # Development
+  - conda-forge::pre-commit
+
+  # pytorch
+  - pytorch
+  - pytorch-cuda=11.8 # NOTE: this is for the workstation ONLY. NUC Should have monometis installed with cpu-only.
+  - torchvision
+  - torchtext
+  - torchaudio
+
+  # NP Family
+  - numpy
+  - scipy
+  - scikit-image
+
+  # IO
+  - imageio
+  - pillow
+  - pyyaml
+  - cloudpickle
+  - h5py
+  - absl-py
+  - pyparsing
+
+  # Plotting
+  - tensorboard
+  - pandas
+  - matplotlib
+  - seaborn
+
+  # Other
+  - pytest
+  - tqdm
+  - future
+
+  # For Robosuite (But install robosuite via source)
+  - numba
+
+  # Polymetis build dependencies
+  - assimp=5.0.1=hdca8b6f_4
+  - cmake
+  - doxygen
+  - eigen
+  - grpc-cpp=1.41.1
+  - hpp-fcl
+  - libprotobuf=3.18.1
+  - openmpi
+  - pinocchio
+  - urdfdom=2.3.3=hc9558a2_0
+  - urdfdom_headers=1.0.5=hc9558a2_2
+  - yaml-cpp
+
+  # Polymetis run Dependencies
+  - boost=1.72.0
+  - boost-cpp=1.72.0
+  - breathe
+  - dash
+  - grpcio=1.46.0
+  - hydra-core
+  - importlib-resources
+  - myst-parser
+  - protobuf
+  - pymodbus
+  - pyserial
+  - spdlog
+
+  - pip
+  - pip:
+      - gym==0.23.1
+      - mujoco-py<2.2,>=2.0
+      - git+https://github.com/Farama-Foundation/Metaworld.git@master#egg=metaworld
+      - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl
