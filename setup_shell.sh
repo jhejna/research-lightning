@@ -26,7 +26,9 @@ fi
 
 # First check if we have a GPU available
 if nvidia-smi | grep "CUDA Version"; then
-    if [ -d "/usr/local/cuda-11.7" ]; then # This is the only GPU version supported by compile.
+    if [ -d "/usr/local/cuda-11.8" ]; then # This is the only GPU version supported by compile.
+        export PATH=/usr/local/cuda-11.8/bin:$PATH
+    elif [ -d "/usr/local/cuda-11.7" ]; then # This is the only GPU version supported by compile.
         export PATH=/usr/local/cuda-11.7/bin:$PATH
     elif [ -d "/usr/local/cuda" ]; then
         export PATH=/usr/local/cuda/bin:$PATH
