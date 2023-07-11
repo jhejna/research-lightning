@@ -139,7 +139,7 @@ def space_copy(space: gym.Space):
     if isinstance(space, gym.spaces.Dict):
         return gym.spaces.Dict({k: space_copy(v) for k, v in space.items()})
     elif isinstance(space, gym.spaces.Box):
-        return gym.spaces.Discrete(low=space.low, high=space.high, dtype=space.dtype)
+        return gym.spaces.Box(low=space.low, high=space.high, dtype=space.dtype)
     elif isinstance(space, gym.spaces.Discrete):
         return gym.spaces.Discrete(n=space.n)
     else:
@@ -188,18 +188,24 @@ def concatenate(*args, dim: int = 0):
 
 
 def append(lst, item):
+    # This takes in a nested list structure and appends everything from item to the nested list structure.
+    # It will require lst to have the complete set of keys -- if keys are in item but not in lst,
+    # they will not be appended.
     if isinstance(lst, dict):
         assert isinstance(item, dict)
-        for k in item.keys():
+        for k in lst.keys():
             append(lst[k], item[k])
     else:
         lst.append(item)
 
 
 def extend(lst1, lst2):
+    # This takes in a nested list structure and appends everything from item to the nested list structure.
+    # It will require lst to have the complete set of keys -- if keys are in item but not in lst,
+    # they will not be extended
     if isinstance(lst1, dict):
         assert isinstance(lst2, dict)
-        for k in lst2.keys():
+        for k in lst1.keys():
             extend(lst1[k], lst2[k])
     else:
         lst1.extend(lst2)
