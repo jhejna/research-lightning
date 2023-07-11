@@ -14,9 +14,8 @@ import yaml
 
 import research
 
-from . import schedules
+from . import schedules, utils
 from .trainer import Trainer
-from .utils import flatten_dict
 
 DEFAULT_NETWORK_KEY = "network"
 
@@ -174,7 +173,7 @@ class Config(BareConfig):
 
     def flatten(self) -> Dict:
         """Returns a flattened version of the config where '.' separates nested values"""
-        return flatten_dict(self.config)
+        return utils.flatten_dict(self.config)
 
     def __setitem__(self, key: str, value: Any):
         if key not in self.config:
@@ -217,8 +216,8 @@ class Config(BareConfig):
     def get_spaces(self):
         # Try to get the spaces. Eval env will always return a space.
         dummy_env = self.get_eval_env_fn()()  # Call the function.
-        observation_space = copy.deepcopy(dummy_env.observation_space)
-        action_space = copy.deepcopy(dummy_env.action_space)
+        observation_space = utils.space_copy(dummy_env.observation_space)
+        action_space = utils.space_copy(dummy_env.action_space)
         dummy_env.close()
         del dummy_env
         gc.collect()

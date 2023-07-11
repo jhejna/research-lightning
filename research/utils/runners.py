@@ -10,6 +10,8 @@ from typing import Any, Callable, Optional
 import gym
 import numpy as np
 
+from . import utils
+
 """
 Env runners are used by the Trainer to run the environments.
 
@@ -91,8 +93,8 @@ class AsyncEnv(gym.Env):
         if observation_space is None or action_space is None:
             # Fetch the spaces and then delete
             dummy_env = env_fn()
-            self.observation_space = copy.deepcopy(dummy_env.observation_space)
-            self.action_space = copy.deepcopy(dummy_env.action_space)
+            self.observation_space = utils.space_copy(dummy_env.observation_space)
+            self.action_space = utils.space_copy(dummy_env.action_space)
             dummy_env.close()
             del dummy_env
             gc.collect()

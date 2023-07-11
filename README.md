@@ -118,6 +118,9 @@ There is still room for improvement, but the current implementations are faster 
 
 The performance improvement from the replay buffer will be more drastic when running vision based algorithms.
 
+### Real Robot Experiments
+This repo supports training and running policies on a Franka Robot using the polymetis library. Specifically, we use the [monometis](https://github.com/hengyuan-hu/monometis) fork of PolyMetis from Hengyuan Hu which makes it easy to use newer versions of Pytorch. An example config training a real robot on a simple reach task with SAC is on the RL branch.
+
 ## Vision
 This section contains a list of features that are included in the `vision` branch of the repo.
 

@@ -132,6 +132,20 @@ def batch_copy(batch: Any) -> Any:
     return batch
 
 
+def space_copy(space: gym.Space):
+    # A custom method for copying gym spaces.
+    # this is because numpy 1.24.0 changed how random states are stored, making them
+    # unserializable by the copy library.
+    if isinstance(space, gym.spaces.Dict):
+        return gym.spaces.Dict({k: space_copy(v) for k, v in space.items()})
+    elif isinstance(space, gym.spaces.Box):
+        return gym.spaces.Discrete(low=space.low, high=space.high, dtype=space.dtype)
+    elif isinstance(space, gym.spaces.Discrete):
+        return gym.spaces.Discrete(n=space.n)
+    else:
+        raise ValueError("Invalid space passed to `space_copy`.")
+
+
 def contains_tensors(batch: Any) -> bool:
     if isinstance(batch, dict):
         return any([contains_tensors(v) for v in batch.values()])
