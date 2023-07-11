@@ -1,0 +1,61 @@
+# Example Config that uses almost all values
+
+alg: SAC
+alg_kwargs:
+  tau: 0.005
+  init_temperature: 0.1
+  critic_freq: 1
+  actor_freq: 1
+  target_freq: 2
+  random_steps: 400
+
+optim: Adam
+optim_kwargs:
+  lr: 0.0003
+
+network: ActorCriticPolicy
+network_kwargs:
+  actor_class: DiagonalGaussianMLPActor
+  actor_kwargs:
+    hidden_layers: [1024, 1024]
+    log_std_bounds: [-5, 2]
+  critic_class: ContinuousMLPCritic
+  critic_kwargs:
+    hidden_layers: [1024, 1024]
+    ensemble_size: 2
+  ortho_init: true
+
+batch_size: null # Use serial replay buffer
+collate_fn: null # The collate function passed to the dataloader. None uses pytorch default.
+checkpoint: null # A checkpoint to initialize the network from.
+
+env: FrankaReach
+env_kwargs:
+  control_hz: 10.0
+  ip_address: 172.16.0.130
+  controller: cartesian_delta
+
+dataset: ReplayBuffer
+dataset_kwargs:
+  sample_fn: sample_qlearning
+  sample_kwargs:
+    discount: 0.99
+    nstep: 1
+    batch_size: 1024
+  capacity: 1000000
+  fetch_every: 1000
+  distributed: False
+
+processor: Concatenate
+
+trainer_kwargs: # Arguments given to Algorithm.train
+  total_steps: 1000000 # The total number of steps to train
+  log_freq: 100 # How often to log values
+  profile_freq: 100
+  env_runner: AsyncEnv # This makes the environment run asynchronized!
+  env_freq: 2
+  eval_fn: null
+  loss_metric: reward # The validation metric that determines when to save the "best_checkpoint"
+  train_dataloader_kwargs:
+    batch_size: null
+    num_workers: 0 # Number of dataloader workers.

@@ -19,7 +19,7 @@ dependencies:
   - torchaudio
 
   # NP Family
-  - numpy
+  - numpy<1.24.0 # Must install lower version of numpy due to copy bug in python 3.9 :(
   - scipy
   - scikit-image
 

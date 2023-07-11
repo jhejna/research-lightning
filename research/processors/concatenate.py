@@ -7,7 +7,7 @@ import torch
 from .base import Processor
 
 
-class ConcatenateProcessor(Processor):
+class Concatenate(Processor):
     def __init__(
         self,
         observation_space: gym.Space,
