@@ -75,8 +75,8 @@ class Controller(object):
         self.state = dict(
             joint_positions=np.array(robot_state.joint_positions, dtype=np.float32),
             joint_velocities=np.array(robot_state.joint_velocities, dtype=np.float32),
-            ee_pos=ee_pos,
-            ee_quat=ee_quat,
+            ee_pos=ee_pos.numpy(),
+            ee_quat=ee_quat.numpy(),
             gripper_pos=gripper_pos,
         )
         return self.state
@@ -99,9 +99,10 @@ class Controller(object):
             # Get the current position and then add some noise to it
             joint_positions = self.robot.get_joint_positions()
             # Update the desired joint positions
-            high = 0.05 * np.ones(self.JOINT_LOW)
-            noise = np.random.uniform(low=-high, high=high, dtype=joint_positions.dtype)
-            self.robot.move_to_joint_positions(joint_positions + noise)
+            high = 0.1 * np.ones(self.JOINT_LOW.shape[0], dtype=np.float32)
+            noise = np.random.uniform(low=-high, high=high)
+            randomized_joint_positions = np.array(joint_positions, dtype=np.float32) + noise
+            self.robot.move_to_joint_positions(torch.from_numpy(randomized_joint_positions))
         self.start_robot()
         self._running = True
         self._updated = True
@@ -169,7 +170,7 @@ class CartesianDeltaController(Controller):
     def update_robot(self, action):
         action = np.clip(action, self.robot_action_space.low, self.robot_action_space.high)
         delta_pos, delta_ori = action[:3], action[3:]
-        new_pos = self.state["ee_pos"] + delta_pos
+        new_pos = torch.from_numpy(self.state["ee_pos"] + delta_pos).float()
         # TODO: this can be made much faster using purpose build methods instead of scipy.
         old_rot = Rotation.from_quat(self.state["ee_quat"])
         delta_rot = Rotation.from_euler("xyz", delta_ori)
@@ -266,7 +267,7 @@ class FrankaEnv(gym.Env):
         return state, 0, done, dict(discount=1.0)
 
     def reset(self):
-        self.controller.reset()
+        self.controller.reset(randomize=True)
         state = self.controller.get_state()
         self._steps = 0
         # start the timer.
@@ -285,5 +286,8 @@ class FrankaReach(FrankaEnv):
 
     def step(self, action):
         state, reward, done, info = super().step(action)
-        reward = -0.1 * np.linalg.norm(state["ee_pos"] - self._goal_position)
+        goal_distance = np.linalg.norm(state["ee_pos"] - self._goal_position)
+        reward = -0.1 * goal_distance
+        print(state["ee_pos"], reward)
+        info["goal_distance"] = goal_distance
         return state, reward, done, info

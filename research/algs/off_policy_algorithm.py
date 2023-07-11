@@ -125,9 +125,12 @@ class OffPolicyAlgorithm(Algorithm):
             return dict(steps=self._env_steps)
 
     def _async_env_step(self, env: gym.Env, step: int, total_steps: int) -> Dict:
-        # RECIEVE DATA FROM THE LAST STEP
+        # Recieve Data from the last step and add to buffer. Should only call recv!
         if self._resetting:
             self._current_obs = env.reset_recv()
+            self._num_ep += 1
+            self._episode_length = 0
+            self._episode_reward = 0
             self.dataset.add(obs=self._current_obs)
             self._resetting = False
             done = False
@@ -140,23 +143,17 @@ class OffPolicyAlgorithm(Algorithm):
                 obs=self._current_obs, action=self._current_action, reward=reward, done=done, discount=info["discount"]
             )
 
-        # SEND DATA FOR THE NEXT STEP.
+        # Send data for the next step and return metrics. Should only call send!
         if done:
             # If the episode terminated, then we need to reset and send the reset message
             self._resetting = True
-            self._num_ep += 1
-            metrics = dict(
+            env.reset_send()
+            return dict(
                 steps=self._env_steps, reward=self._episode_reward, length=self._episode_length, num_ep=self._num_ep
             )
-            # Reset the environment
-            self._current_obs = env.reset()
-            self.dataset.add(obs=self._current_obs)  # Add the first timestep
-            self._episode_length = 0
-            self._episode_reward = 0
-            env.reset_send()
-            return metrics
         else:
-            # Otherwise, compute the action we shoudl take and send it.
+            # Otherwise, compute the action we should take and send it.
+            self._resetting = False
             if step < self.random_steps:
                 self._current_action = env.action_space.sample()
             else:
