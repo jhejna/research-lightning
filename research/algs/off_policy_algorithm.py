@@ -3,7 +3,7 @@ import os
 import sys
 import tempfile
 from abc import abstractmethod
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 
 import gym
 import numpy as np
@@ -12,7 +12,7 @@ import torch
 from research.datasets import ReplayBuffer
 from research.datasets.replay_buffer import storage
 from research.envs.base import EmptyEnv
-from research.utils import runners
+from research.utils import runners, utils
 
 from .base import Algorithm
 
@@ -56,6 +56,7 @@ class OffPolicyAlgorithm(Algorithm):
                 checkpoint_path=self._checkpoint_dir,
                 storage_path=self.dataset.storage_path,
                 random_steps=self.random_steps,
+                exclude_keys=self.dataset.exclude_keys,
                 total_steps=total_steps,
             )
             self.env_step = self._runner_env_step
@@ -126,16 +127,18 @@ class OffPolicyAlgorithm(Algorithm):
     def _async_env_step(self, env: gym.Env, step: int, total_steps: int) -> Dict:
         # RECIEVE DATA FROM THE LAST STEP
         if self._resetting:
-            obs = env.reset_recv()
-            self.dataset.add(obs=obs)
+            self._current_obs = env.reset_recv()
+            self.dataset.add(obs=self._current_obs)
             self._resetting = False
             done = False
         else:
-            obs, reward, done, info = env.step_recv()
+            self._current_obs, reward, done, info = env.step_recv()
             self._env_steps += 1
             self._episode_length += 1
             self._episode_reward += reward
-            self.dataset.add(obs=obs, action=self._current_action, reward=reward, done=done, discount=info["discount"])
+            self.dataset.add(
+                obs=self._current_obs, action=self._current_action, reward=reward, done=done, discount=info["discount"]
+            )
 
         # SEND DATA FOR THE NEXT STEP.
         if done:
@@ -188,6 +191,7 @@ def _off_policy_collector_subprocess(
     config_path: str,
     checkpoint_path: str,
     storage_path: str,
+    exclude_keys: Optional[Optional[list]] = None,
     device: Union[str, torch.device] = "auto",
     random_steps: int = 0,
     total_steps: int = 0,
@@ -206,6 +210,28 @@ def _off_policy_collector_subprocess(
         config = config.parse()
         model = config.get_model(observation_space=env.observation_space, action_space=env.action_space, device=device)
         model.eval()
+
+        # Compute the buffer space
+        buffer_space = {
+            "obs": env.observation_space,
+            "action": env.action_space,
+            "reward": 0.0,
+            "done": False,
+            "discount": 1.0,
+        }
+        exclude_keys = [] if exclude_keys is None else exclude_keys
+        flattened_buffer_space = utils.flatten_dict(buffer_space)
+        for k in exclude_keys:
+            del flattened_buffer_space[k]
+
+        def make_dummy_transition(obs):
+            return {
+                "obs": obs,
+                "action": env.action_space.sample(),
+                "reward": 0.0,
+                "discount": 1.0,
+                "done": False,
+            }
 
         # Metrics:
         num_ep = 0
@@ -231,12 +257,10 @@ def _off_policy_collector_subprocess(
                         _ = model.load(current_checkpoint)
 
             # Then, collect an episode
+            current_ep = {k: list() for k in flattened_buffer_space.keys()}
+            current_ep = utils.nest_dict(current_ep)
             obs = env.reset()
-            obses = [obs]
-            actions = [env.action_space.sample()]
-            rewards = [0.0]
-            dones = [False]
-            discounts = [1.0]
+            utils.append(current_ep, make_dummy_transition(obs))
             done = False
 
             while not done:
@@ -248,27 +272,27 @@ def _off_policy_collector_subprocess(
 
                 obs, reward, done, info = env.step(action)
                 env_steps += 1
-                obses.append(obs)
-                actions.append(action)
-                rewards.append(reward)
-                dones.append(done)
+
                 if "discount" in info:
                     discount = info["discount"]
-                elif hasattr(env, "_max_episode_steps") and len(dones) - 1 == env._max_episode_steps:
+                elif hasattr(env, "_max_episode_steps") and len(current_ep["done"]) - 1 == env._max_episode_steps:
                     discount = 1.0
                 else:
                     discount = 1 - float(done)
-                discounts.append(discount)
+                transition = dict(obs=obs, action=action, reward=reward, done=done, discount=discount)
+                utils.append(current_ep, transition)
 
             # The episode has terminated.
             num_ep += 1
-            metrics = dict(steps=env_steps, reward=np.sum(reward), length=len(dones) - 1, num_ep=num_ep)
+            metrics = dict(
+                steps=env_steps, reward=np.sum(current_ep["reward"]), length=len(current_ep["done"]) - 1, num_ep=num_ep
+            )
             queue.put(metrics)
-            data = dict(obs=obses, action=actions, reward=rewards, done=dones, discount=discounts)
             # Timestamp it and add the ep idx (num ep - 1 so we start at zero.)
             ts = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-            ep_filename = f"{ts}_{num_ep - 1}_{len(dones)}.npz"
-            storage.save_data(data, os.path.join(storage_path, ep_filename))
+            ep_len = len(current_ep["done"])
+            ep_filename = f"{ts}_{num_ep - 1}_{ep_len}.npz"
+            storage.save_data(current_ep, os.path.join(storage_path, ep_filename))
 
     except KeyboardInterrupt:
         print("[research] OffPolicy Collector sent interrupt.")

@@ -240,8 +240,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         ep_filename = f"{ts}_{ep_idx}_{ep_len}.npz"
         storage.save_data(self.current_ep, os.path.join(self.storage_path, ep_filename))
 
-        flattened_buffer = utils.flatten_dict(self.buffer_space)
-        ep = {k: list() for k in flattened_buffer.keys()}
+        flattened_buffer_space = utils.flatten_dict(self.buffer_space)
+        ep = {k: list() for k in flattened_buffer_space.keys()}
         self.current_ep = utils.nest_dict(ep)
 
     def add(self, **kwargs):
