@@ -126,16 +126,16 @@ class OffPolicyAlgorithm(Algorithm):
     def _async_env_step(self, env: gym.Env, step: int, total_steps: int) -> Dict:
         # RECIEVE DATA FROM THE LAST STEP
         if self._resetting:
-            obs = env.reset_recv()
-            self.dataset.add(obs=obs)
+            self._current_obs = env.reset_recv()
+            self.dataset.add(obs=self._current_obs)
             self._resetting = False
             done = False
         else:
-            obs, reward, done, info = env.step_recv()
+            self._current_obs, reward, done, info = env.step_recv()
             self._env_steps += 1
             self._episode_length += 1
             self._episode_reward += reward
-            self.dataset.add(obs=obs, action=self._current_action, reward=reward, done=done, discount=info["discount"])
+            self.dataset.add(obs=self._current_obs, action=self._current_action, reward=reward, done=done, discount=info["discount"])
 
         # SEND DATA FOR THE NEXT STEP.
         if done:
