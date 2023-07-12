@@ -125,13 +125,13 @@ def sample_qlearning(
     obs = utils.get_from_batch(storage["obs"], obs_idxs)
     action = utils.get_from_batch(storage["action"], action_idxs)
     reward = np.zeros_like(storage["reward"][idxs])
-    discount = np.ones_like(storage["discount"][idxs])
+    discount_batch = np.ones_like(storage["discount"][idxs])
     for i in range(nstep):
-        reward += discount * storage["reward"][idxs + i]
-        discount *= discount * storage["discount"][idxs + i]
+        reward += discount_batch * storage["reward"][idxs + i]
+        discount_batch *= discount * storage["discount"][idxs + i]
     next_obs = utils.get_from_batch(storage["obs"], next_obs_idxs)
 
-    return dict(obs=obs, action=action, reward=reward, discount=discount, next_obs=next_obs)
+    return dict(obs=obs, action=action, reward=reward, discount=discount_batch, next_obs=next_obs)
 
 
 def sample_sequence(
@@ -330,7 +330,7 @@ def sample_her_qlearning(
     action_idxs = stack_idxs if "action" in stack_keys else idxs
 
     reward = np.zeros_like(storage["reward"][idxs])
-    discount = np.ones_like(storage["discount"][idxs])
+    discount_batch = np.ones_like(storage["discount"][idxs])
     for i in range(nstep):
         if reward_fn is None:
             # If reward function is None, use sparse indicator reward.
@@ -339,8 +339,8 @@ def sample_her_qlearning(
         else:
             achieved = utils.get_from_batch(storage["obs"][achieved_key], idxs + i)
             step_reward = reward_fn(achieved, desired)
-        reward += discount * step_reward
-        discount *= discount * storage["discount"][idxs + i]
+        reward += discount_batch * step_reward
+        discount_batch *= discount * storage["discount"][idxs + i]
 
     if stack > 1 and "obs" in stack_keys:
         # Add temporal dimension if we stack the achieved frames.
@@ -354,7 +354,7 @@ def sample_her_qlearning(
     next_obs[goal_key] = desired
     action = utils.get_from_batch(storage["action"], action_idxs)
 
-    return dict(obs=obs, action=action, reward=reward, discount=discount, next_obs=next_obs, horizon=horizon)
+    return dict(obs=obs, action=action, reward=reward, discount=discount_batch, next_obs=next_obs, horizon=horizon)
 
 
 def sample_her_sequence(

@@ -225,7 +225,6 @@ class CircularStorage(Storage):
         The deque must always have something inserted at any number % self.capacity = self.capacity - 1
         """
         use_streaming_update = len(new_ends) > 0 and not self._skipped_last
-
         if self._skipped_last:
             self._skipped_last = False
         else:
