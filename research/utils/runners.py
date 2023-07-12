@@ -4,6 +4,7 @@ import gc
 import multiprocessing as mp
 import queue
 import sys
+import time
 from enum import Enum
 from typing import Any, Callable, Optional
 
@@ -154,6 +155,12 @@ class AsyncEnv(gym.Env):
         self.reset_send()
         return self.reset_recv()
 
+    def close(self):
+        self.parent_pipe.send("close")
+        time.sleep(2)
+        if self.process.is_alive():
+            self.process.terminate()
+
 
 def _async_env_worker(env_fn, pipe, parent_pipe, obs_buffer, action_buffer):
     env = env_fn()
@@ -180,6 +187,8 @@ def _async_env_worker(env_fn, pipe, parent_pipe, obs_buffer, action_buffer):
                     discount = 1 - float(done)
                 write_shared_buffer(obs_buffer, env.observation_space, obs)
                 pipe.send((True, (reward, done, discount)))
+            elif command == "close":
+                break
             else:
                 pipe.send((False, None))
                 raise ValueError("Invalid command sent to subprocess worker.")
@@ -247,3 +256,7 @@ class MPRunner(object):
 
     def reset(self, *args, **kwargs):
         raise ValueError("Use step_send and step_recv!")
+
+    def close(self):
+        if self._started and self.process.is_alive():
+            self.process.terminate()
