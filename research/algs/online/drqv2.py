@@ -67,12 +67,6 @@ class DRQV2(OffPolicyAlgorithm):
         self.init_steps = init_steps
         self.noise_clip = noise_clip
 
-        # Now setup the logging parameters
-        self._current_obs = self.env.reset()
-        self._episode_reward = 0
-        self._episode_length = 0
-        self._num_ep = 0
-
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
         self.network = network_class(
             self.processor.observation_space, self.processor.action_space, **network_kwargs

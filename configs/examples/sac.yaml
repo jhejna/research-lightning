@@ -38,6 +38,7 @@ dataset_kwargs:
     discount: 0.99
     nstep: 1
     batch_size: 1024
+    sample_by_timesteps: False
   capacity: 1000000
   fetch_every: 1000
   distributed: False
@@ -48,7 +49,7 @@ trainer_kwargs: # Arguments given to Algorithm.train
   total_steps: 1000000 # The total number of steps to train
   log_freq: 250 # How often to log values
   profile_freq: 100
-  env_runner: AsyncEnv # This makes the environment run asynchronized!
+  env_runner: null # Set to AsyncEnv to run the environment run asynchronized!
   eval_freq: 10000 # How often to run evals
   eval_fn: eval_policy
   eval_kwargs:

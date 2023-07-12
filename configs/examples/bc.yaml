@@ -14,24 +14,23 @@ network_kwargs:
   hidden_layers: [256, 256]
   ortho_init: True
 
-eval_env: hopper-medium-expert-v2
+# Example config using Robomimic.
+eval_env: RobomimicEnv
+eval_env_kwargs:
+  path: /iliad/group/datasets/robomimic/can/ph/low_dim.hdf5
+  horizon: 500
 
-dataset: D4RLDataset
+dataset: RobomimicDataset
 dataset_kwargs:
-  d4rl_path: ../datasets/d4rl/
-  name: hopper-medium-expert-v2
+  path: /iliad/group/datasets/robomimic/can/ph/low_dim.hdf5
   sample_fn: sample
   sample_kwargs:
     batch_size: 256
-  exclude_keys: [reward, discount] # Cannot exclude done.
-  normalize_reward: True
-  reward_scale: 1000.0 # scale to 1000 like in IQL
-  use_rtg: False
-  use_timesteps: False
-  action_eps: 0.00001 # necesary to prevent NaN in the dataset.
+validation_dataset_kwargs:
+  train: False
 
 schedule: null
-processor: null
+processor: Concatenate
 
 trainer_kwargs: # Arguments given to Algorithm.train
   total_steps: 1000000 # The total number of steps to train
@@ -42,6 +41,7 @@ trainer_kwargs: # Arguments given to Algorithm.train
   eval_kwargs:
     num_ep: 10 # Number of enviornment episodes to run for evaluation, or -1 if none should be run.
   loss_metric: reward # The validation metric that determines when to save the "best_checkpoint"
+  max_validation_steps: 25 # Will run forever otherwise due to continuous replay buffer iter.
   train_dataloader_kwargs:
     num_workers: 0 # Number of dataloader workers.
     batch_size: null

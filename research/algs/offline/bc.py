@@ -20,7 +20,7 @@ class BehaviorCloning(OffPolicyAlgorithm):
 
     def __init__(self, *args, grad_norm_clip: Optional[float] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        if isinstance(self.env.action_space, gym.spaces.Discrete):
+        if isinstance(self.action_space, gym.spaces.Discrete):
             self._discrete = True
             self.criterion = torch.nn.CrossEntropyLoss(ignore_idx=IGNORE_INDEX)
         else:

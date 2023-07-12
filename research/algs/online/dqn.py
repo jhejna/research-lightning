@@ -62,7 +62,7 @@ class DQN(OffPolicyAlgorithm):
             eps = 0.0
 
         if random.random() < eps:
-            action = self.env.action_space.sample()
+            action = self.action_space.sample()
         else:
             with torch.no_grad():
                 action = self.predict(dict(obs=self._current_obs))
