@@ -369,6 +369,12 @@ class Trainer(object):
 
             epoch += 1
 
+        # Cleanup!
+        if self._env is not None:
+            self._env.close()
+        if self._eval_env is not None:
+            self._eval_env.close()
+
     def validate(self, path: str, step: int):
         assert not self.model.training
         self.check_compilation()
