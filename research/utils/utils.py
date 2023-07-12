@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import gym
+import h5py
 import numpy as np
 import torch
 
@@ -90,11 +91,11 @@ def squeeze(batch: Any, dim: int) -> Any:
 
 
 def get_from_batch(batch: Any, start: Union[int, np.ndarray, torch.Tensor], end: Optional[int] = None) -> Any:
-    if isinstance(batch, dict):
+    if isinstance(batch, (dict, h5py.Group)):
         return {k: get_from_batch(v, start, end=end) for k, v in batch.items()}
     elif isinstance(batch, (list, tuple)):
         return [get_from_batch(v, start, end=end) for v in batch]
-    elif isinstance(batch, np.ndarray) or isinstance(batch, torch.Tensor):
+    elif isinstance(batch, (np.ndarray, torch.Tensor, h5py.Dataset)):
         if end is None:
             return batch[start]
         else:
