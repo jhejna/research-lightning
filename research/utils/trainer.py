@@ -127,7 +127,7 @@ class Trainer(object):
         """
         Do this way for lazy init
         """
-        if self._env is None:
+        if self._env is None and self.env_fn is not None:
             env_runner = vars(runners)[self.env_runner] if isinstance(self.env_runner, str) else self.env_runner
             if env_runner is None:
                 self._env = self.env_fn()
@@ -142,7 +142,7 @@ class Trainer(object):
         """
         Do this way for lazy init
         """
-        if self._eval_env is None:
+        if self._eval_env is None and self.eval_env_fn is not None:
             env_runner = (
                 vars(runners)[self.eval_env_runner] if isinstance(self.eval_env_runner, str) else self.eval_env_runner
             )
