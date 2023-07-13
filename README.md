@@ -29,7 +29,7 @@ You should now have setup a github repository with the research-lightning base. 
 After setting up the repo, there are a few steps before you can get started:
 1. Edit `environment_cpu.yaml` and `environment_gpu.yaml` as desired to include any additional dependencies via conda or pip. You can also change the name if desired.
 2. Create the conda environment using `conda env create -f environment_<cpu or gpu>.yaml`.
-3. Install the research package via `pip install -e research`.
+3. Install the research package via `pip install -e .`.
 4. Modify the `setup_shell.sh` script by updated the appropriate values as needed. The `setup_shell.sh` script should load the environment, move the shell to the repository directory, and additionally setup any external dependencies. You can add any extra code here.
 
 Other default configuration values for the sweepers, particularly slurm, can be modified at the header of `tools/run_slurm.py`.
