@@ -171,9 +171,9 @@ class Config(BareConfig):
             random.seed(self.config["seed"])
         return config
 
-    def flatten(self) -> Dict:
+    def flatten(self, separator=".") -> Dict:
         """Returns a flattened version of the config where '.' separates nested values"""
-        return utils.flatten_dict(self.config)
+        return utils.flatten_dict(self.config, separator=separator)
 
     def __setitem__(self, key: str, value: Any):
         if key not in self.config:
