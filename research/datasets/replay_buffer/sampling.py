@@ -149,10 +149,9 @@ def sample_sequence(
     assert pad < seq_length, "Cannot use seq length equal to pad."
     min_length = seq_length - pad + 1
     ep_idxs = _get_ep_idxs(storage, batch_size, sample_by_timesteps, min_length)
-    # Sample sequences
     starts, ends = storage.starts[ep_idxs], storage.ends[ep_idxs]
-    idxs = np.random.randint(starts, ends + (1 - min_length))
-
+    # Add 2: one for not-inclusive, one for seq_len offset.
+    idxs = np.random.randint(starts + 1, ends + (2 + pad - seq_length))
     batch = {}
 
     # After the base indexes, determine if we have other idxs
@@ -163,7 +162,7 @@ def sample_sequence(
         # Compute the mask
         mask = seq_idxs > np.expand_dims(ends, axis=-1)
         # Trim down to save mem usage by returning a view of the same data.
-        seq_idxs = np.minimum(seq_idxs, np.expand_dims(ends, axis=0))
+        seq_idxs = np.minimum(seq_idxs, np.expand_dims(ends, axis=-1))
         batch["mask"] = mask
 
     # Sample from the dataset
@@ -378,7 +377,8 @@ def sample_her_sequence(
     ep_idxs = _get_ep_idxs(storage, batch_size, sample_by_timesteps, min_length)
 
     starts, ends = storage.starts[ep_idxs], storage.ends[ep_idxs]
-    idxs = np.random.randint(starts, ends + (1 - min_length))
+    # Add 2: one for not-inclusive, one for seq_len offset.
+    idxs = np.random.randint(starts + 1, ends + (2 + pad - seq_length))
 
     her_idxs = np.where(np.random.uniform(size=idxs.shape) < relabel_fraction)
 
@@ -393,7 +393,7 @@ def sample_her_sequence(
         mask = seq_idxs > np.expand_dims(ends, axis=-1)
         batch["mask"] = mask
         # Trim down to save mem usage by returning a view of the same data.
-        seq_idxs = np.minimum(seq_idxs, np.expand_dims(ends, axis=0))
+        seq_idxs = np.minimum(seq_idxs, np.expand_dims(ends, axis=-1))
         last_idxs = seq_idxs[..., -1]  # Get the last index from every sequence
     else:
         last_idxs = idxs  # only a single transition

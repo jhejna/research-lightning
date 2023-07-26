@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Optional
 
 import d4rl
 import gym
@@ -19,8 +19,8 @@ class D4RLDataset(ReplayBuffer):
         action_space: gym.Space,
         name: str,
         d4rl_path: Optional[str] = None,  # where to save D4RL files.
-        use_rtg: bool = True,
-        use_timesteps: bool = True,
+        use_rtg: bool = False,
+        use_timesteps: bool = False,
         normalize_reward: bool = False,
         reward_scale: float = 1.0,
         reward_shift: float = 0.0,
@@ -56,7 +56,7 @@ class D4RLDataset(ReplayBuffer):
 
         # Compute dataset normalization as in https://github.com/ikostrikov/implicit_q_learning
         if self.normalize_reward:
-            ep_rewards = []
+            ep_rewards, ep_lengths = [], []
             ep_reward, ep_length = 0, 0
             for i in range(len(dataset["observations"])):
                 ep_reward += dataset["rewards"][i]
@@ -64,10 +64,12 @@ class D4RLDataset(ReplayBuffer):
                 ep_length += 1
                 if done:
                     ep_rewards.append(ep_reward)
+                    ep_lengths.append(ep_length)
                     ep_reward, ep_length = 0, 0
             min_reward, max_reward = min(ep_rewards), max(ep_rewards)
+            max_length = max(ep_lengths)
             print("[research] Normalized D4RL range:", min_reward, max_reward)
-            self.reward_scale *= 1 / (max_reward - min_reward)
+            self.reward_scale *= max_length / (max_reward - min_reward)
 
         # Lots of this code was borrowed from https://github.com/rail-berkeley/d4rl/blob/master/d4rl/__init__.py
         obs_ = []
@@ -140,17 +142,3 @@ class D4RLDataset(ReplayBuffer):
         # Finally clean up the environment
         del dataset
         del env
-
-    def add(
-        self,
-        obs: Any,
-        action: Optional[Any] = None,
-        reward: Optional[Any] = None,
-        done: Optional[Any] = None,
-        discount: Optional[Any] = None,
-        **kwargs,
-    ) -> None:
-        # Make sure to consistently process the environment reward.
-        if reward is not None:
-            reward = reward * self.reward_scale + self.reward_shift
-        return super().add(obs, action, reward, done, discount, **kwargs)
