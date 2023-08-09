@@ -65,7 +65,7 @@ if __name__ == "__main__":
     config = config.parse()
     model = config.get_model(device=args.device)
     metadata = model.load(args.checkpoint)
-    trainer = config.get_trainer()
+    trainer = config.get_trainer(model=model)
     # Run the evaluation loop
     os.makedirs(args.path, exist_ok=True)
     metrics = trainer.evaluate(args.path, metadata["step"])

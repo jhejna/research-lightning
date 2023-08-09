@@ -26,7 +26,7 @@ def save_data(data: Dict, path: str) -> None:
     data = utils.flatten_dict(data)
     # Format everything into numpy in case it was saved as a list
     for k in data.keys():
-        if isinstance(data[k], np.ndarray):
+        if isinstance(data[k], np.ndarray) and not data[k].dtype == np.float64:  # Allow float64 carve out.
             continue
         elif isinstance(data[k], list):
             first_value = data[k][0]
