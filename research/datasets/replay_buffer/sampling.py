@@ -103,9 +103,10 @@ def sample_qlearning(
     min_length = 1 + nstep
     ep_idxs = _get_ep_idxs(storage, batch_size, sample_by_timesteps, min_length)
     # sample position within the episode randomly
-    # Note that there is a plus one offset here to account for the difference
-    # between the obs and action position
-    offsets = np.random.randint(1, storage.lengths[ep_idxs])
+    # There is a plus one offset here to account for the difference between the obs and action position
+    # length = start - end + 1 ie 0 to 2 has length of 3 bc all indexes are filled.
+    # There is a nstep - 1 to account for the fact that we must be able to sample next_obs in the future.
+    offsets = np.random.randint(1, storage.lengths[ep_idxs] - nstep + 1)
 
     if stack > 1:
         assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
@@ -284,9 +285,10 @@ def sample_her_qlearning(
     ep_idxs = _get_ep_idxs(storage, batch_size, sample_by_timesteps, min_length)
 
     # sample position within the episode randomly
-    # Note that there is a plus one offset here to account for the difference
-    # between the obs and action position
-    offsets = np.random.randint(1, storage.lengths[ep_idxs])
+    # There is a plus one offset here to account for the difference between the obs and action position
+    # length = start - end + 1 ie 0 to 2 has length of 3 bc all indexes are filled.
+    # There is a nstep - 1 to account for the fact that we must be able to sample next_obs in the future.
+    offsets = np.random.randint(1, storage.lengths[ep_idxs] - nstep + 1)
 
     if stack > 1:
         assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
