@@ -7,6 +7,8 @@ import imageio
 import numpy as np
 import torch
 
+from . import utils
+
 MAX_METRICS = {"success", "is_success", "completions"}
 LAST_METRICS = {"goal_distance"}
 MEAN_METRICS = {"discount"}
@@ -84,6 +86,7 @@ def eval_policy(
     height=200,
     every_n_frames: int = 2,
     terminate_on_success=False,
+    history_length: int = 0,
 ) -> Dict:
     metric_tracker = EvalMetricTracker()
     assert num_gifs <= num_ep, "Cannot save more gifs than eval ep."
@@ -96,6 +99,8 @@ def eval_policy(
         save_gif = i < num_gifs
         render_kwargs = dict(mode="rgb_array", width=width, height=height) if save_gif else dict()
         obs = env.reset()
+        if history_length > 0:
+            obs = utils.unsqueeze(obs, 0)
         if save_gif:
             frames.append(env.render(**render_kwargs))
         metric_tracker.reset()
@@ -105,7 +110,9 @@ def eval_policy(
                 batch["horizon"] = env._max_episode_steps - ep_length
             with torch.no_grad():
                 action = model.predict(batch)
-            obs, reward, done, info = env.step(action)
+            if history_length > 0:
+                action = action[-1]
+            next_obs, reward, done, info = env.step(action)
             ep_reward += reward
             metric_tracker.step(reward, info)
             ep_length += 1
@@ -113,6 +120,15 @@ def eval_policy(
                 frames.append(env.render(**render_kwargs))
             if terminate_on_success and (info.get("success", False) or info.get("is_success", False)):
                 done = True
+            # Update the observation if we have history
+            if history_length > 0:
+                obs = utils.concatenate(obs, utils.unsqueeze(next_obs, 0), dim=0)
+                if ep_length + 1 > history_length:
+                    # Drop the last observation from the sequence
+                    obs = utils.get_from_batch(obs, start=1, end=history_length + 1)
+            else:
+                obs = next_obs
+
         if hasattr(env, "get_normalized_score"):
             metric_tracker.add("score", env.get_normalized_score(ep_reward))
 
