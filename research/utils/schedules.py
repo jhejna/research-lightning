@@ -12,8 +12,8 @@ def linear_decay(total_steps: int, start_step: int = 1, offset: int = 0):
     return fn
 
 
-def linear_warmup(total_steps: int, end_step: int = 1):
+def linear_warmup(total_steps: int, multiplier: float = 1.0):
     def fn(step):
-        return min(1.0, step / end_step)
+        return multiplier * min(1.0, step / total_steps)
 
     return fn
