@@ -85,10 +85,16 @@ class DRQV2(OffPolicyAlgorithm):
         critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())
         self.optim["critic"] = self.optim_class(critic_params, **self.optim_kwargs)
 
-    def _update_critic(self, batch: Dict) -> Dict:
+    def _get_std(self, step: int):
+        init, final, duration = self.std_schedule
+        mix = np.clip(step / duration, 0.0, 1.0)
+        std = (1.0 - mix) * init + mix * final
+        return std
+
+    def _update_critic(self, batch: Dict, step: int) -> Dict:
         with torch.no_grad():
             mu = self.network.actor(batch["next_obs"])
-            std = self._get_std() * torch.ones_like(mu)
+            std = self._get_std(step) * torch.ones_like(mu)
             next_action = TruncatedNormal(mu, std).sample(clip=self.noise_clip)
             target_qs = self.target_network.critic(batch["next_obs"], next_action)
             target_v = torch.min(target_qs, dim=0)[0]
@@ -105,13 +111,13 @@ class DRQV2(OffPolicyAlgorithm):
 
         return dict(q_loss=q_loss.item(), target_q=target_q.mean().item())
 
-    def _update_actor(self, batch: Dict) -> Dict:
+    def _update_actor(self, batch: Dict, step: int) -> Dict:
         obs = batch["obs"].detach()  # Detach the encoder so it isn't updated.
         mu = self.network.actor(obs)
-        std = self._get_std() * torch.ones_like(mu)
+        std = self._get_std(step) * torch.ones_like(mu)
         dist = TruncatedNormal(mu, std)
         action = dist.sample(clip=self.noise_clip)
-        log_prob = dist.log_prob(action).sum(dim=-1)
+        log_prob = dist.log_prob(action)
 
         q1, q2 = self.network.critic(obs, action)
         q = torch.min(q1, q2)
@@ -126,13 +132,8 @@ class DRQV2(OffPolicyAlgorithm):
     def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
         batch = dict(obs=obs)
         with torch.no_grad():
-            mu = self.predict(batch)
-            mu = torch.as_tensor(mu, device=self.device)
-            init, final, duration = self.std_schedule
-            mix = np.clip(step / duration, 0.0, 1.0)
-            std = (1.0 - mix) * init + mix * final
-            std = std * torch.ones_like(mu)
-            action = TruncatedNormal(mu, std).sample(clip=None).cpu().numpy()
+            action = self.predict(batch, noise=self._get_std(step), noise_clip=None)
+            action = np.clip(action, self.processor.action_space.low + 1e-6, self.processor.action_space.high - 1e-6)
         return action
 
     def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
@@ -143,32 +144,22 @@ class DRQV2(OffPolicyAlgorithm):
 
         batch["obs"] = self.network.encoder(batch["obs"])
         with torch.no_grad():
-            batch["next_obs"] = self.target_network.encoder(batch["next_obs"])
+            batch["next_obs"] = self.network.encoder(batch["next_obs"])
 
         if step % self.critic_freq == 0:
-            metrics = self._update_critic(batch)
+            metrics = self._update_critic(batch, step)
             all_metrics.update(metrics)
 
         if step % self.actor_freq == 0:
-            metrics = self._update_actor(batch)
+            metrics = self._update_actor(batch, step)
             all_metrics.update(metrics)
 
-        # NOTE: The original DrQv2 does not use a target encoder. We use one here.
         if step % self.target_freq == 0:
-            # Only update the critic and encoder for speed. Ignore the actor.
+            # Only update the critic for speed. Ignore the actor.
             with torch.no_grad():
-                for param, target_param in zip(
-                    self.network.encoder.parameters(), self.target_network.encoder.parameters()
-                ):
-                    target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
                 for param, target_param in zip(
                     self.network.critic.parameters(), self.target_network.critic.parameters()
                 ):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return all_metrics
-
-    def _predict(self, batch: Any) -> torch.Tensor:
-        with torch.no_grad():
-            z = self.network.encoder(batch["obs"])
-            return self.network.actor(z)

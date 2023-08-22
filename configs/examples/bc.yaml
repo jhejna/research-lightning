@@ -17,12 +17,12 @@ network_kwargs:
 # Example config using Robomimic.
 eval_env: RobomimicEnv
 eval_env_kwargs:
-  path: /iliad/group/datasets/robomimic/can/ph/low_dim.hdf5
+  path: path/to/robomimic/dataset
   horizon: 500
 
 dataset: RobomimicDataset
 dataset_kwargs:
-  path: /iliad/group/datasets/robomimic/can/ph/low_dim.hdf5
+  path: path/to/robomimic/dataset
   sample_fn: sample
   sample_kwargs:
     batch_size: 256

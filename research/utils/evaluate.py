@@ -1,6 +1,6 @@
 import collections
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import gym
 import imageio
@@ -87,8 +87,10 @@ def eval_policy(
     every_n_frames: int = 2,
     terminate_on_success=False,
     history_length: int = 0,
+    predict_kwargs: Optional[Dict] = None,
 ) -> Dict:
     metric_tracker = EvalMetricTracker()
+    predict_kwargs = {} if predict_kwargs is None else predict_kwargs
     assert num_gifs <= num_ep, "Cannot save more gifs than eval ep."
 
     for i in range(num_ep):
@@ -109,7 +111,7 @@ def eval_policy(
             if hasattr(env, "_max_episode_steps"):
                 batch["horizon"] = env._max_episode_steps - ep_length
             with torch.no_grad():
-                action = model.predict(batch)
+                action = model.predict(batch, **predict_kwargs)
             if history_length > 0:
                 action = action[-1]
             next_obs, reward, done, info = env.step(action)

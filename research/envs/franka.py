@@ -21,8 +21,8 @@ class Controller(object):
 
     EE_LOW = np.array([0.1, -0.4, -0.05, -np.pi, -np.pi, -np.pi], dtype=np.float32)
     EE_HIGH = np.array([1.0, 0.4, 1.0, 1.0, np.pi, np.pi, np.pi], dtype=np.float32)
-    JOINT_LOW = np.array([-2.7437, -1.7837, -2.9007, -3.0421, -2.8065, 0.5445, -3.0159], dtype=np.float32)
-    JOINT_HIGH = np.array([2.7437, 1.7837, 2.9007, -0.1518, 2.8065, 4.5169, 3.0159], dtype=np.float32)
+    JOINT_LOW = np.array([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973], dtype=np.float32)
+    JOINT_HIGH = np.array([2.8973, 1.7628, 2.8973, -0.0698, 2.8973, 3.7525, 2.8973], dtype=np.float32)
     HOME = np.array([0.0, -np.pi / 4.0, 0.0, -3.0 * np.pi / 4.0, 0.0, np.pi / 2.0, np.pi / 4.0], dtype=np.float32)
 
     def __init__(self, ip_address: str = "localhost", control_hz=10.0):
@@ -111,7 +111,7 @@ class Controller(object):
         # We always run the gripper in absolute position
         gripper_action = max(min(gripper_action, 1), 0)
         self.gripper.goto(
-            width=self._max_gripper_width * (1 - gripper_action), speed=0.05, force=0.1, blocking=blocking
+            width=self._max_gripper_width * (1 - gripper_action), speed=0.1, force=0.01, blocking=blocking
         )
 
     @abstractproperty
@@ -159,9 +159,9 @@ class CartesianDeltaController(Controller):
     @property
     def robot_action_space(self):
         high = self._max_delta * np.ones(6, dtype=np.float32)
-        # Allow more deviation in rotations for now.
-        # I empirically found this value to work OK
-        high[3:] = 3 * self._max_delta
+        # We aim to construct the following action space for 2 Hz or _max_delta = 0.05
+        # x: 0.05, y 0.05, z 0.05, rot1 0.2 rot2 0.2 rot3 0.2
+        high[3:] = 4 * self._max_delta
         return gym.spaces.Box(low=-1 * high, high=high, dtype=np.float32)
 
     def start_robot(self):
@@ -244,7 +244,9 @@ class FrankaEnv(gym.Env):
             "joint_position": JointPositionController,
             "joint_delta": JointDeltaController,
         }[controller](ip_address=ip_address)
-        self.action_space = self.controller.action_space
+        # self.action_space = self.controller.action_space
+        # Add the action space limits.
+        self.action_space = gym.spaces.Box(low=-1, high=1, shape=self.controller.action_space.shape, dtype=np.float32)
         # TODO: update later to modify in addition to proprio space with cameras etc.
         self.observation_space = self.controller.observation_space
 
@@ -256,7 +258,9 @@ class FrankaEnv(gym.Env):
 
     def step(self, action):
         # Immediately update with the action
-        self.controller.update(action)
+        low, high = self.controller.action_space.low, self.controller.action_space.high
+        unscaled_action = low + (0.5 * (action + 1.0) * (high - low))
+        self.controller.update(unscaled_action)
 
         # Wait until we have 15hz since last time.
         precise_wait(self._time + 1 / self.control_hz)

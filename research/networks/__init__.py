@@ -6,6 +6,8 @@ from .mlp import (
     ContinuousMLPCritic,
     DiagonalGaussianMLPActor,
     DiscreteMLPCritic,
+    GaussianMixtureMLPActor,
     MLPEncoder,
     MLPValue,
 )
+from .transformer import TransformerStateSequenceEncoder

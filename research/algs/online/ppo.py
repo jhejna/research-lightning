@@ -50,6 +50,9 @@ class PPO(Algorithm):
         # Losses
         self.value_criterion = torch.nn.MSELoss()
 
+        action_range = (self.processor.action_space.low, self.processor.action_space.high)
+        self.action_range = utils.to_device(utils.to_tensor(action_range), self.device)
+
     def _collect_rollouts(self, env: gym.Env) -> Dict:
         # Setup the dataset and network
         self.dataset.setup()
@@ -71,7 +74,7 @@ class PPO(Algorithm):
                 dist = self.network.actor(latent)
                 # Collect relevant information
                 action = dist.sample()
-                log_prob = dist.log_prob(action).sum(dim=-1)
+                log_prob = dist.log_prob(action)
                 value = self.network.value(latent).mean(dim=0)  # Account for Ensemble Dim
                 # Unprocess back to numpy
                 action = utils.to_np(utils.get_from_batch(action, 0))
@@ -158,7 +161,7 @@ class PPO(Algorithm):
         # Run the policy to predict the values, log probs, and entropies
         latent = self.network.encoder(batch["obs"])
         dist = self.network.actor(latent)
-        log_prob = dist.log_prob(batch["action"]).sum(dim=-1)
+        log_prob = dist.log_prob(batch["action"])
         value = self.network.value(latent)
 
         advantage = batch["advantage"]
@@ -175,7 +178,7 @@ class PPO(Algorithm):
             value = last_value + torch.clamp(value - last_value, -self.clip_range_vf, self.clip_range_vf)
         value_loss = self.value_criterion(batch["returns"].expand(value.shape[0], -1), value)
 
-        entropy_loss = -torch.mean(dist.entropy().sum(dim=-1))
+        entropy_loss = -torch.mean(dist.entropy())
 
         total_loss = policy_loss + self.vf_coeff * value_loss + self.ent_coeff * entropy_loss
 
@@ -194,14 +197,17 @@ class PPO(Algorithm):
     def validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
 
-    def _predict(self, batch: Any, sample=False) -> torch.Tensor:
+    def _predict(self, batch: Any, sample: bool = False, noise: float = 0.0) -> torch.Tensor:
         with torch.no_grad():
             latent = self.network.encoder(batch["obs"])
             dist = self.network.actor(latent)
             if sample:
                 action = dist.sample()
             else:
-                action = dist.loc
+                action = dist.base_dist.loc
+            if noise > 0:
+                action = action + noise * torch.randn_like(action)
+            action = action.clamp(*self.action_range)
         return action
 
 
@@ -237,7 +243,7 @@ class AdaptiveKLPPO(PPO):
         # Run the policy to predict the values, log probs, and entropies
         latent = self.network.encoder(batch["obs"])
         dist = self.network.actor(latent)
-        log_prob = dist.log_prob(batch["action"]).sum(dim=-1)
+        log_prob = dist.log_prob(batch["action"])
         value = self.network.value(latent)
 
         advantage = batch["advantage"]
@@ -250,13 +256,13 @@ class AdaptiveKLPPO(PPO):
         # Compute the KL divergence here.
         # Note that this could be done more numerically stable by using log_sigma instead of sigma
         old_dist = torch.distributions.Normal(batch["mu"], batch["sigma"])
-        kl_div = torch.distributions.kl.kl_divergence(old_dist, dist).sum(dim=-1).mean()
+        kl_div = torch.distributions.kl.kl_divergence(old_dist, dist).mean()
 
         if self.clip_range_vf is not None:
             value = batch["value"] + torch.clamp(value - batch["value"], -self.clip_range_vf, self.clip_range_vf)
         value_loss = self.value_criterion(batch["returns"], value)
 
-        entropy_loss = -torch.mean(dist.entropy().sum(dim=-1))
+        entropy_loss = -torch.mean(dist.entropy())
 
         total_loss = policy_loss + self.beta * kl_div + self.vf_coeff * value_loss + self.ent_coeff * entropy_loss
 

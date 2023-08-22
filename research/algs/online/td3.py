@@ -5,7 +5,6 @@ import numpy as np
 import torch
 
 from research.networks.base import ActorCriticPolicy
-from research.utils.utils import to_device, to_tensor
 
 from ..off_policy_algorithm import OffPolicyAlgorithm
 
@@ -37,8 +36,6 @@ class TD3(OffPolicyAlgorithm):
         self.target_freq = target_freq
         self.average_actor_q = average_actor_q
         self.bc_coeff = bc_coeff
-        self.action_range = (self.processor.action_space.low, self.processor.action_space.high)
-        self.action_range_tensor = to_device(to_tensor(self.action_range), self.device)
 
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
         self.network = network_class(
@@ -69,7 +66,7 @@ class TD3(OffPolicyAlgorithm):
         with torch.no_grad():
             noise = (torch.randn_like(batch["action"]) * self.target_noise).clamp(-self.noise_clip, self.noise_clip)
             next_action = self.target_network.actor(batch["next_obs"])
-            noisy_next_action = (next_action + noise).clamp(*self.action_range_tensor)
+            noisy_next_action = (next_action + noise).clamp(*self.action_range)
             target_q = self.target_network.critic(batch["next_obs"], noisy_next_action)
             target_q = torch.min(target_q, dim=0)[0]
             target_q = batch["reward"] + batch["discount"] * target_q
@@ -127,8 +124,3 @@ class TD3(OffPolicyAlgorithm):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return all_metrics
-
-    def _predict(self, batch: Any) -> torch.Tensor:
-        with torch.no_grad():
-            z = self.network.encoder(batch["obs"])
-            return self.network.actor(z)

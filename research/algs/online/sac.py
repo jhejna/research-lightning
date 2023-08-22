@@ -33,10 +33,6 @@ class SAC(OffPolicyAlgorithm):
         self.target_freq = target_freq
         self.bc_coeff = bc_coeff
         self.target_entropy = -np.prod(self.processor.action_space.low.shape)
-        self.action_range = [
-            float(self.processor.action_space.low.min()),
-            float(self.processor.action_space.high.max()),
-        ]
 
     @property
     def alpha(self) -> torch.Tensor:
@@ -70,7 +66,7 @@ class SAC(OffPolicyAlgorithm):
         with torch.no_grad():
             dist = self.network.actor(batch["next_obs"])
             next_action = dist.rsample()
-            log_prob = dist.log_prob(next_action).sum(dim=-1)
+            log_prob = dist.log_prob(next_action)
             target_qs = self.target_network.critic(batch["next_obs"], next_action)
             target_v = torch.min(target_qs, dim=0)[0] - self.alpha.detach() * log_prob
             target_q = batch["reward"] + batch["discount"] * target_v
@@ -88,13 +84,13 @@ class SAC(OffPolicyAlgorithm):
         obs = batch["obs"].detach()  # Detach the encoder so it isn't updated.
         dist = self.network.actor(obs)
         action = dist.rsample()
-        log_prob = dist.log_prob(action).sum(dim=-1)
+        log_prob = dist.log_prob(action)
         qs = self.network.critic(obs, action)
         q = torch.min(qs, dim=0)[0]
 
         actor_loss = (self.alpha.detach() * log_prob - q).mean()
         if self.bc_coeff > 0.0:
-            bc_loss = -dist.log_prob(batch["action"]).sum(dim=-1).mean()  # Simple NLL loss.
+            bc_loss = -dist.log_prob(batch["action"]).mean()  # Simple NLL loss.
             actor_loss = actor_loss + self.bc_coeff * bc_loss
 
         self.optim["actor"].zero_grad(set_to_none=True)
@@ -146,14 +142,6 @@ class SAC(OffPolicyAlgorithm):
                     target_param.data.copy_(self.tau * param.data + (1 - self.tau) * target_param.data)
 
         return all_metrics
-
-    def _predict(self, batch: Any, sample: bool = False) -> torch.Tensor:
-        with torch.no_grad():
-            z = self.network.encoder(batch["obs"])
-            dist = self.network.actor(z)
-            action = dist.sample() if sample else dist.loc
-            action = action.clamp(*self.action_range)
-            return action
 
     def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
         batch = dict(obs=obs)

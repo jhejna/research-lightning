@@ -4,8 +4,6 @@ from typing import Any, Dict, Type
 import numpy as np
 import torch
 
-from research.utils import utils
-
 from ..off_policy_algorithm import OffPolicyAlgorithm
 
 
@@ -51,10 +49,7 @@ class DQN(OffPolicyAlgorithm):
         for param in self.target_network.parameters():
             param.requires_grad = False
 
-    def _compute_action(self) -> Any:
-        return self.predict(dict(obs=self._current_obs))
-
-    def _get_train_action(self, step: int, total_steps: int) -> np.ndarray:
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
         if self.eps_frac > 0:
             frac = min(1.0, step / (total_steps * self.eps_frac))
             eps = (1 - frac) * self.eps_start + frac * self.eps_end
@@ -65,7 +60,7 @@ class DQN(OffPolicyAlgorithm):
             action = self.action_space.sample()
         else:
             with torch.no_grad():
-                action = self.predict(dict(obs=self._current_obs))
+                action = self.predict(dict(obs=obs), sample=False)
         return action
 
     def _compute_value(self, batch: Any) -> torch.Tensor:
@@ -103,12 +98,6 @@ class DQN(OffPolicyAlgorithm):
 
         return all_metrics
 
-    def _predict(self, batch: Any) -> torch.Tensor:
-        with torch.no_grad():
-            q = self.network(batch["obs"])
-            action = q.argmax(dim=-1)
-            return action
-
     def _validation_step(self, batch: Any):
         raise NotImplementedError("RL Algorithm does not have a validation dataset.")
 
@@ -127,15 +116,18 @@ class SoftDQN(DQN):
         self.exploration_alpha = exploration_alpha
         self.target_alpha = target_alpha
 
-    def _compute_action(self) -> Any:
-        obs = utils.unsqueeze(self._current_obs, 0)
-        obs = self._format_batch(obs)
-        q = self.network(obs)
-        dist = torch.nn.functional.softmax(q / self.exploration_alpha, dim=-1)
-        dist = torch.distributions.categorical.Categorical(dist)
-        action = dist.sample()
-        action = utils.get_from_batch(action, 0)
-        action = utils.to_np(action)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        if self.eps_frac > 0:
+            frac = min(1.0, step / (total_steps * self.eps_frac))
+            eps = (1 - frac) * self.eps_start + frac * self.eps_end
+        else:
+            eps = 0.0
+
+        if random.random() < eps:
+            action = self.action_space.sample()
+        else:
+            with torch.no_grad():
+                action = self.predict(dict(obs=obs), sample=True, temperature=self.exploration_alpha)
         return action
 
     def _compute_value(self, batch: Any) -> torch.Tensor:
@@ -150,15 +142,18 @@ class SoftDoubleDQN(DQN):
         self.exploration_alpha = exploration_alpha
         self.target_alpha = target_alpha
 
-    def _compute_action(self) -> torch.Tensor:
-        obs = utils.unsqueeze(self._current_obs, 0)
-        obs = self._format_batch(obs)
-        q = self.network(obs)
-        dist = torch.nn.functional.softmax(q / self.exploration_alpha, dim=-1)
-        dist = torch.distributions.categorical.Categorical(dist)
-        action = dist.sample()
-        action = utils.get_from_batch(action, 0)
-        action = utils.to_np(action)
+    def _get_train_action(self, obs: Any, step: int, total_steps: int) -> np.ndarray:
+        if self.eps_frac > 0:
+            frac = min(1.0, step / (total_steps * self.eps_frac))
+            eps = (1 - frac) * self.eps_start + frac * self.eps_end
+        else:
+            eps = 0.0
+
+        if random.random() < eps:
+            action = self.action_space.sample()
+        else:
+            with torch.no_grad():
+                action = self.predict(dict(obs=obs), sample=True, temperature=self.exploration_alpha)
         return action
 
     def _compute_value(self, batch: Any) -> torch.Tensor:

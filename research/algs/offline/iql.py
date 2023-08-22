@@ -24,23 +24,14 @@ class IQL(OffPolicyAlgorithm):
         expectile: Optional[float] = None,
         beta: float = 1,
         clip_score: float = 100.0,
-        sparse_reward: bool = False,
-        encoder_gradients: str = "critic",
         **kwargs,
     ) -> None:
         super().__init__(*args, **kwargs)
-        assert encoder_gradients in ("actor", "critic", "both")
-        self.encoder_gradients = encoder_gradients
         self.tau = tau
         self.target_freq = target_freq
         self.expectile = expectile
         self.beta = beta
         self.clip_score = clip_score
-        self.sparse_reward = sparse_reward
-        self.action_range = [
-            float(self.processor.action_space.low.min()),
-            float(self.processor.action_space.high.max()),
-        ]
         assert isinstance(self.network, ActorCriticValuePolicy)
 
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
@@ -55,17 +46,9 @@ class IQL(OffPolicyAlgorithm):
             param.requires_grad = False
 
     def setup_optimizers(self) -> None:
-        # Default optimizer initialization
-        if self.encoder_gradients == "critic" or self.encoder_gradients == "both":
-            critic_params = itertools.chain(self.network.critic.parameters(), self.network.encoder.parameters())
-            actor_params = self.network.actor.parameters()
-        elif self.encoder_gradients == "actor":
-            critic_params = self.network.critic.parameters()
-            actor_params = itertools.chain(self.network.actor.parameters(), self.network.encoder.parameters())
-        else:
-            raise ValueError("Unsupported value of encoder_gradients")
+        actor_params = itertools.chain(self.network.actor.parameters(), self.network.encoder.parameters())
         self.optim["actor"] = self.optim_class(actor_params, **self.optim_kwargs)
-        self.optim["critic"] = self.optim_class(critic_params, **self.optim_kwargs)
+        self.optim["critic"] = self.optim_class(self.network.critic.parameters(), **self.optim_kwargs)
         self.optim["value"] = self.optim_class(self.network.value.parameters(), **self.optim_kwargs)
 
     def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
@@ -83,16 +66,21 @@ class IQL(OffPolicyAlgorithm):
         vs = self.network.value(batch["obs"].detach())  # Always detach for value learning
         v_loss = iql_loss(vs, target_q.expand(vs.shape[0], -1), self.expectile).mean()
 
+        self.optim["value"].zero_grad(set_to_none=True)
+        v_loss.backward()
+        self.optim["value"].step()
+
         # Next, compute the critic loss
         with torch.no_grad():
             next_vs = self.network.value(batch["next_obs"])
             next_v = torch.min(next_vs, dim=0)[0]
             target = batch["reward"] + batch["discount"] * next_v
-        qs = self.network.critic(
-            batch["obs"].detach() if self.encoder_gradients == "actor" else batch["obs"], batch["action"]
-        )
-
+        qs = self.network.critic(batch["obs"].detach(), batch["action"])
         q_loss = torch.nn.functional.mse_loss(qs, target.expand(qs.shape[0], -1), reduction="none").mean()
+
+        self.optim["critic"].zero_grad(set_to_none=True)
+        q_loss.backward()
+        self.optim["critic"].step()
 
         # Next, update the actor. We detach and use the old value, v for computational efficiency
         # though the JAX IQL recomputes it, while Pytorch IQL versions do not.
@@ -102,9 +90,9 @@ class IQL(OffPolicyAlgorithm):
             if self.clip_score is not None:
                 exp_adv = torch.clamp(exp_adv, max=self.clip_score)
 
-        dist = self.network.actor(batch["obs"].detach() if self.encoder_gradients == "critic" else batch["obs"])
+        dist = self.network.actor(batch["obs"])
         if isinstance(dist, torch.distributions.Distribution):
-            bc_loss = -dist.log_prob(batch["action"]).sum(dim=-1)
+            bc_loss = -dist.log_prob(batch["action"])
         elif torch.is_tensor(dist):
             assert dist.shape == batch["action"].shape
             bc_loss = torch.nn.functional.mse_loss(dist, batch["action"], reduction="none").sum(dim=-1)
@@ -113,12 +101,8 @@ class IQL(OffPolicyAlgorithm):
         actor_loss = (exp_adv * bc_loss).mean()
 
         # Update the networks. These are done in a stack to support different grad options for the encoder.
-        self.optim["value"].zero_grad(set_to_none=True)
-        self.optim["critic"].zero_grad(set_to_none=True)
         self.optim["actor"].zero_grad(set_to_none=True)
-        (actor_loss + q_loss + v_loss).backward()
-        self.optim["value"].step()
-        self.optim["critic"].step()
+        actor_loss.backward()
         self.optim["actor"].step()
 
         if step % self.target_freq == 0:
@@ -142,16 +126,18 @@ class IQL(OffPolicyAlgorithm):
             advantage=adv.mean().item(),
         )
 
-    def _predict(self, batch: Dict, sample: bool = False) -> torch.Tensor:
+    def _predict(self, batch: Dict, sample: bool = False, noise: float = 0.0) -> torch.Tensor:
         with torch.no_grad():
             z = self.network.encoder(batch["obs"])
             dist = self.network.actor(z)
             if isinstance(dist, torch.distributions.Distribution):
-                action = dist.sample() if sample else dist.loc
+                action = dist.sample() if sample else dist.base_dist.loc
             elif torch.is_tensor(dist):
                 action = dist
             else:
                 raise ValueError("Invalid policy output")
+            if noise > 0.0:
+                action = action + noise * torch.randn_like(action)
             action = action.clamp(*self.action_range)
         return action
 
