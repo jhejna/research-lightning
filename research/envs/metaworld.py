@@ -60,7 +60,7 @@ class MetaWorldSawyerEnv(gym.Env):
 
 
 class MetaWorldSawyerImageWrapper(gym.Wrapper):
-    def __init__(self, env, width=64, height=64, camera="corner2", show_goal=False):
+    def __init__(self, env, width=84, height=84, camera="corner2", show_goal=False):
         assert isinstance(
             env.unwrapped, MetaWorldSawyerEnv
         ), "MetaWorld Wrapper must be used with a MetaWorldSawyerEnv class"
@@ -87,7 +87,7 @@ class MetaWorldSawyerImageWrapper(gym.Wrapper):
     def step(self, action):
         state_obs, reward, done, info = self.env.step(action)
         # Throw away the state-based observation.
-        info["state_obs"] = state_obs
+        info["state"] = state_obs
         return self._get_image().copy(), reward, done, info
 
     def reset(self):

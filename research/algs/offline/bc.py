@@ -51,9 +51,9 @@ class BehaviorCloning(OffPolicyAlgorithm):
         if isinstance(dist, torch.distributions.Distribution):
             loss = -dist.log_prob(batch["action"])  # NLL Loss
         elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Box):
-            loss = torch.nn.functional.mse_loss(dist, batch["label"], reduction="none")  # MSE Loss
+            loss = torch.nn.functional.mse_loss(dist, batch["action"], reduction="none")  # MSE Loss
         elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Discrete):
-            loss = torch.nn.functional.cross_entropy(dist, batch["label"], ignore_index=IGNORE_INDEX, reduction="none")
+            loss = torch.nn.functional.cross_entropy(dist, batch["action"], ignore_index=IGNORE_INDEX, reduction="none")
         else:
             raise ValueError("Invalid Policy output")
 
@@ -90,10 +90,10 @@ class BehaviorCloning(OffPolicyAlgorithm):
             if isinstance(dist, torch.distributions.Distribution):
                 loss = -dist.log_prob(batch["action"])  # NLL Loss
             elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Box):
-                loss = torch.nn.functional.mse_loss(dist, batch["label"], reduction="none")  # MSE Loss
+                loss = torch.nn.functional.mse_loss(dist, batch["action"], reduction="none")  # MSE Loss
             elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Discrete):
                 loss = torch.nn.functional.cross_entropy(
-                    dist, batch["label"], ignore_index=IGNORE_INDEX, reduction="none"
+                    dist, batch["action"], ignore_index=IGNORE_INDEX, reduction="none"
                 )
             else:
                 raise ValueError("Invalid Policy output")

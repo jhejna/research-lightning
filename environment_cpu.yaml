@@ -47,6 +47,6 @@ dependencies:
   - pip:
       - gym==0.23.1
       - mujoco-py<2.2,>=2.0
-      - git+https://github.com/Farama-Foundation/Metaworld.git@master#egg=metaworld
+      - git+https://github.com/Farama-Foundation/Metaworld.git@04be337a12305e393c0caf0cbf5ec7755c7c8feb
       # The D4RL dependency does not yet support python 3.11 via pip. Instead run this command outside of conda.
       # - git+https://github.com/Farama-Foundation/d4rl@master#egg=d4rl --ignore-requires-python
