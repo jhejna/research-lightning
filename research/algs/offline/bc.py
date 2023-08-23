@@ -20,14 +20,6 @@ class BehaviorCloning(OffPolicyAlgorithm):
 
     def __init__(self, *args, grad_norm_clip: Optional[float] = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-
-        if isinstance(self.action_space, gym.spaces.Discrete):
-            self._discrete = True
-            self.criterion = torch.nn.CrossEntropyLoss(ignore_idx=IGNORE_INDEX)
-        else:
-            self._discrete = False
-            self.criterion = torch.nn.MSELoss(reduction="none")
-
         self.grad_norm_clip = grad_norm_clip
 
     def setup_optimizers(self) -> None:
