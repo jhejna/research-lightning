@@ -254,7 +254,7 @@ class DiagonalGaussianMLPActor(nn.Module):
         dist_class = SquashedNormal if self.squash_normal else D.Normal
         dist = dist_class(mu, log_std.exp())
         assert len(mu.shape) > 1, "Must used batched."
-        dist = D.Independent(dist, len(mu.shape) - 1)  # Combine logprob on last dim.
+        dist = D.Independent(dist, 1)  # Combine logprob on last dim.
         return dist
 
 
@@ -334,7 +334,7 @@ class GaussianMixtureMLPActor(nn.Module):
 
         component_dist_class = SquashedNormal if self.squash_normal else D.Normal
         component_dist = component_dist_class(mu, log_std.exp())
-        component_dist = D.Independent(component_dist, len(mu.shape) - 2)
+        component_dist = D.Independent(component_dist, 1)
 
         cat_dist = D.Categorical(logits=logits)
 
