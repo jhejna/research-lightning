@@ -171,6 +171,7 @@ class EnsembleMLP(nn.Module):
         """
         An ensemble MLP
         Returns values of shape (E, B, H) from input (B, H)
+        All extra dimensions are moved to batch
         """
         super().__init__()
         # Change the normalization type to work over ensembles
@@ -189,10 +190,22 @@ class EnsembleMLP(nn.Module):
         if output_act is not None:
             net.append(output_act())
         self.net = nn.Sequential(*net)
+        self.input_dim, self.output_dim = input_dim, output_dim
+        self.ensemble_size = ensemble_size
         self._has_output_act = False if output_act is None else True
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.net(x)
+        # The input to this network is assumed to be (....., input_dim)
+        assert x.shape[-1] == self.input_dim
+        batch_dims = x.size()[:-1]
+        if len(batch_dims) > 1:
+            x = x.view(-1, self.input_dim)
+            x = self.net(x)
+            output_shape = (self.ensemble_size, *batch_dims, self.output_dim)
+            x = x.view(*output_shape)
+        else:
+            x = self.net(x)
+        return x
 
     @property
     def last_layer(self) -> torch.Tensor:
