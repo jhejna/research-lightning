@@ -34,9 +34,9 @@ class LayerNorm(nn.Module):
 
 
 class MLP(nn.Module):
-    def __init__(self, n_embd=128, dropout=0.0, dense_multiplier=4, bias=True):
+    def __init__(self, n_embd=128, dropout=0.1, dense_multiplier=4, bias=True):
         super().__init__()
-        self.c_fc = nn.Linear(n_embd, dense_multiplier * n_embd, bias=bias)
+        self.c_fc = nn.Linear(n_embd, int(dense_multiplier * n_embd), bias=bias)
         self.gelu = nn.GELU()
         self.c_proj = nn.Linear(4 * n_embd, n_embd, bias=bias)
         self.dropout = nn.Dropout(dropout)
@@ -51,7 +51,7 @@ class MLP(nn.Module):
 
 class SelfAttention(nn.Module):
     def __init__(
-        self, n_embd: int = 128, n_head: int = 4, dropout: float = 0.0, bias: bool = True, causal: bool = True
+        self, n_embd: int = 128, n_head: int = 4, dropout: float = 0.1, bias: bool = True, causal: bool = True
     ):
         super().__init__()
         assert n_embd % n_head == 0
@@ -78,6 +78,9 @@ class SelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2)  # (B, nh, T, hs)
 
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        if attn_mask is not None:
+            assert attn_mask.dtype == torch.bool
+            attn_mask = attn_mask.unsqueeze(1)  # Expand for attention heads.
         y = torch.nn.functional.scaled_dot_product_attention(
             q, k, v, attn_mask=attn_mask, dropout_p=self.dropout if self.training else 0, is_causal=self.causal
         )
@@ -92,7 +95,7 @@ class TransformerBlock(nn.Module):
         self,
         n_embd: int = 128,
         n_head: int = 4,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         dense_multiplier: int = 4,
         bias: bool = False,
         causal: bool = True,
@@ -116,7 +119,7 @@ class TransformerEncoder(nn.Module):
         n_embd: int = 128,
         n_head: int = 4,
         n_layer: int = 2,
-        dropout: float = 0.0,
+        dropout: float = 0.1,
         dense_multiplier: int = 4,
         bias: bool = False,
         causal: bool = True,
@@ -125,6 +128,7 @@ class TransformerEncoder(nn.Module):
     ):
         super().__init__()
         self.n_embd = n_embd
+        self.block_size = block_size
         self.pos_embedding = nn.Embedding(block_size, n_embd)
         self.dropout = nn.Dropout(dropout)
         self.blocks = nn.ModuleList(
@@ -151,6 +155,7 @@ class TransformerEncoder(nn.Module):
 
     def forward(self, x, attn_mask=None):
         assert len(x.shape) == 3
+        assert x.shape[1] <= self.block_size, "Insufficient block size."
         pos_idxs = torch.arange(0, x.shape[1], device=x.device, dtype=torch.long)
         x = x + self.pos_embedding(pos_idxs)
         x = self.dropout(x)
@@ -160,12 +165,13 @@ class TransformerEncoder(nn.Module):
         return x
 
 
-class TransformerStateSequenceEncoder(nn.Module):
-    def __init__(self, observation_space: gym.Space, action_space: gym.Space, n_embd=128, **kwargs):
+class StateTransformerEncoder(nn.Module):
+    def __init__(self, observation_space: gym.Space, action_space: gym.Space, n_embd=128, bias=True, **kwargs):
         super().__init__()
         assert isinstance(observation_space, gym.spaces.Box) and len(observation_space.shape) == 1
         self.n_embd = n_embd
-        self.transformer = TransformerEncoder(n_embd=n_embd, **kwargs)
+        self.transformer = TransformerEncoder(n_embd=n_embd, bias=bias, **kwargs)
+        self.token_ln = LayerNorm(self.n_embd, bias=bias)
         self.obs_embedding = nn.Linear(observation_space.shape[0], n_embd)
         nn.init.normal_(self.obs_embedding.weight, mean=0.0, std=0.02)
 
@@ -175,4 +181,4 @@ class TransformerStateSequenceEncoder(nn.Module):
 
     def forward(self, obs, mask=None):
         assert len(obs.shape) == 3
-        return self.transformer(self.obs_embedding(obs), attn_mask=mask)
+        return self.transformer(self.token_ln(self.obs_embedding(obs)), attn_mask=mask)

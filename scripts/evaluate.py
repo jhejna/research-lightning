@@ -31,6 +31,9 @@ if __name__ == "__main__":
     config = Config.load(os.path.dirname(args.checkpoint))
     config["checkpoint"] = None  # Set checkpoint to None, we don't actually need to load it.
 
+    if args.path is None:
+        args.path = os.path.dirname(args.checkpoint)
+
     # Overrides
     print("Overrides:")
     for override in args.override:

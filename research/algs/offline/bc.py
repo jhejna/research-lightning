@@ -26,11 +26,10 @@ class BehaviorCloning(OffPolicyAlgorithm):
         """
         Decay support added explicitly. Maybe move this to base implementation?
         """
-        named_params = {pn: p for pn, p in self.network.named_parameters() if p.requires_grad}
         # create optim groups. Any parameters that is 2D or higher will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_group = {"params": [p for n, p in named_params.items() if p.dim() >= 2]}
-        no_decay_group = {"params": [p for n, p in named_params.items() if p.dim() < 2]}
+        decay_group = {"params": [p for p in self.network.parameters() if p.dim() >= 2 and p.requires_grad]}
+        no_decay_group = {"params": [p for p in self.network.parameters() if p.dim() < 2 and p.requires_grad]}
         decay_group.update(self.optim_kwargs)
         no_decay_group.update(self.optim_kwargs)
         no_decay_group["weight_decay"] = 0.0
@@ -97,6 +96,17 @@ class BehaviorCloning(OffPolicyAlgorithm):
                 )
             else:
                 raise ValueError("Invalid Policy output")
+
+            # Aggregate the losses
+            if "mask" in batch:
+                assert batch["mask"].shape == loss.shape
+                mask = 1 - batch["mask"].float()
+                loss = mask * loss
+                size = mask.sum()  # how many elements we train on.
+            else:
+                size = loss.numel()
+
+            loss = loss.sum() / size
 
         return dict(loss=loss.item())
 

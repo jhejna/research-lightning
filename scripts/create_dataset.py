@@ -76,11 +76,24 @@ if __name__ == "__main__":
     else:
         model = None
 
-    capacity = (env._max_episode_steps + 2) * args.num_ep if args.num_ep < np.inf else args.num_steps
-    capacity = 2 if args.shard else capacity  # Set capacity to a small value if we are saving eps to disk directly.
+    # Calculate the replay buffer capacity
+    if args.num_ep < np.inf and not args.shard:
+        try:
+            max_ep_steps = env._max_episode_steps
+        except AttributeError:
+            max_ep_steps = env.unwrapped._max_episode_steps
+        capacity = (max_ep_steps + 2) * args.num_ep
+    elif not args.shard:
+        capacity = args.num_steps
+    else:
+        capacity = 2
+
+    # Init the replay buffer.
     replay_buffer = ReplayBuffer(
         env.observation_space, env.action_space, capacity=capacity, cleanup=not args.shard, distributed=args.shard
     )
+
+    print(replay_buffer._storage["done"].dtype)
 
     # Track data collection
     num_steps = 0
@@ -136,18 +149,14 @@ if __name__ == "__main__":
     print("Finished", num_ep, "episodes in", num_steps, "steps.")
     print("It took", (end_time - start_time) / num_steps, "seconds per step")
 
-    if args.shard:
-        replay_buffer.save(args.path)
-        fname = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
-    else:
-        fname = replay_buffer.save_flat(args.path)
-        fname = os.path.basename(fname)
+    replay_buffer.save(args.path)
 
     # Write the metrics
     metrics = metric_tracker.export()
+    dt = datetime.datetime.now().strftime("%Y%m%dT%H%M%S")
     print("Metrics:")
     print(metrics)
     with open(os.path.join(args.path, "metrics.txt"), "a") as f:
-        f.write("Collected data: " + str(fname) + "\n")
+        f.write("Collected data: " + str(dt) + "\n")
         for k, v in metrics.items():
             f.write(k + ": " + str(v) + "\n")
