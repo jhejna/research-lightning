@@ -227,6 +227,8 @@ def np_dataset_alloc(
 ) -> np.ndarray:
     if isinstance(space, (dict, gym.spaces.Dict)):
         return {k: np_dataset_alloc(v, capacity, begin_pad=begin_pad, end_pad=end_pad) for k, v in space.items()}
+    elif isinstance(space, bool):
+        return np.empty((capacity, *begin_pad, *end_pad), dtype=np.bool_)
     elif isinstance(space, (gym.spaces.Box, np.ndarray)):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
         return np.empty((capacity, *begin_pad, *space.shape, *end_pad), dtype=dtype)
@@ -234,8 +236,6 @@ def np_dataset_alloc(
         return np.empty((capacity, *begin_pad, *end_pad), dtype=np.int64)
     elif isinstance(space, float) or isinstance(space, np.float32):
         return np.empty((capacity, *begin_pad, *end_pad), dtype=np.float32)
-    elif isinstance(space, bool):
-        return np.empty((capacity, *begin_pad, *end_pad), dtype=np.bool_)
     else:
         raise ValueError("Invalid space provided to `np_dataset_alloc`")
 
@@ -243,6 +243,8 @@ def np_dataset_alloc(
 def np_bytes_per_instance(space: gym.Space) -> int:
     if isinstance(space, gym.spaces.Dict):
         return sum([np_bytes_per_instance(v) for k, v in space.items()])
+    elif isinstance(space, bool):
+        return np.dtype(np.bool_).itemsize
     elif isinstance(space, (gym.spaces.Box, np.ndarray)):
         dtype = np.float32 if space.dtype == np.float64 else space.dtype
         return np.dtype(dtype).itemsize * np.prod(space.shape)
@@ -250,8 +252,6 @@ def np_bytes_per_instance(space: gym.Space) -> int:
         return np.dtype(np.int64).itemsize
     elif isinstance(space, float) or isinstance(space, np.float32):
         return np.dtype(np.float32).itemsize
-    elif isinstance(space, bool):
-        return np.dtype(np.bool_).itemsize
     else:
         raise ValueError("Invalid space provided to `np_bytes_per_instance`")
 
