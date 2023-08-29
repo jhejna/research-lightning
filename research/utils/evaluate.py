@@ -1,6 +1,6 @@
 import collections
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import gym
 import imageio
@@ -12,6 +12,7 @@ from . import utils
 MAX_METRICS = {"success", "is_success", "completions"}
 LAST_METRICS = {"goal_distance"}
 MEAN_METRICS = {"discount"}
+EXCLUDE_METRICS = {"TimeLimit.truncated"}
 
 
 class EvalMetricTracker(object):
@@ -52,7 +53,7 @@ class EvalMetricTracker(object):
         self.ep_length += 1
         self.ep_reward += reward
         for k, v in info.items():
-            if isinstance(v, float) or np.isscalar(v):
+            if (isinstance(v, float) or np.isscalar(v)) and k not in EXCLUDE_METRICS:
                 self.ep_metrics[k].append(v)
 
     def add(self, k: str, v: Any):
@@ -87,8 +88,10 @@ def eval_policy(
     every_n_frames: int = 2,
     terminate_on_success=False,
     history_length: int = 0,
+    predict_kwargs: Optional[Dict] = None,
 ) -> Dict:
     metric_tracker = EvalMetricTracker()
+    predict_kwargs = {} if predict_kwargs is None else predict_kwargs
     assert num_gifs <= num_ep, "Cannot save more gifs than eval ep."
 
     for i in range(num_ep):
@@ -109,7 +112,7 @@ def eval_policy(
             if hasattr(env, "_max_episode_steps"):
                 batch["horizon"] = env._max_episode_steps - ep_length
             with torch.no_grad():
-                action = model.predict(batch)
+                action = model.predict(batch, **predict_kwargs)
             if history_length > 0:
                 action = action[-1]
             next_obs, reward, done, info = env.step(action)
