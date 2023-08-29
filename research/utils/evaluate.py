@@ -12,6 +12,7 @@ from . import utils
 MAX_METRICS = {"success", "is_success", "completions"}
 LAST_METRICS = {"goal_distance"}
 MEAN_METRICS = {"discount"}
+EXCLUDE_METRICS = {"TimeLimit.truncated"}
 
 
 class EvalMetricTracker(object):
@@ -52,7 +53,7 @@ class EvalMetricTracker(object):
         self.ep_length += 1
         self.ep_reward += reward
         for k, v in info.items():
-            if isinstance(v, float) or np.isscalar(v):
+            if (isinstance(v, float) or np.isscalar(v)) and k not in EXCLUDE_METRICS:
                 self.ep_metrics[k].append(v)
 
     def add(self, k: str, v: Any):
