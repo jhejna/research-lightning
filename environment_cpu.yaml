@@ -7,6 +7,7 @@ dependencies:
 
   # Development
   - conda-forge::pre-commit
+  - Cython<3.0
 
   # pytorch
   - pytorch

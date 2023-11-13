@@ -34,6 +34,29 @@ After setting up the repo, there are a few steps before you can get started:
 
 Other default configuration values for the sweepers, particularly slurm, can be modified at the header of `tools/run_slurm.py`.
 
+### Special Instructions for M1 Mac Users.
+
+Local development is great! The `environment_m1.yaml` should support m1. However, a few extra steps are needed to install mujoco. The package currently uses `mujoco_py` to be compatible with all standard benchmarks, but that is not supported by newer mujoco builds. Here are instructions to get it working.
+
+1. Download and install Mujoco 2.1.1, found [here](https://github.com/google-deepmind/mujoco/releases/tag/2.1.1). Use the dmg file, and drag the mujoco app to applications.
+2. Follow these instructions, adapted from [this post](https://github.com/openai/mujoco-py/issues/662#issuecomment-996081734) to install mujoco_py.
+```
+mkdir -p $HOME/.mujoco/mujoco210         # Remove existing installation if any
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/Headers/ $HOME/.mujoco/mujoco210/include
+mkdir -p $HOME/.mujoco/mujoco210/bin
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib $HOME/.mujoco/mujoco210/bin/libmujoco210.dylib
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib /usr/local/lib/
+# For MacOS Sonoma and Newer, this workaround helped. You may need to make some folders.
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib $HOME/.mujoco/mujoco210/bin/MuJoCo.framework/Versions/A/libmujoco.2.1.1.dylib
+
+brew install glfw
+brew install gcc@11
+ln -sf /opt/homebrew/lib/libglfw.3.dylib $HOME/.mujoco/mujoco210/bin
+export CC=/opt/homebrew/bin/gcc-11         # see https://github.com/openai/mujoco-py/issues/605
+```
+3. Install mujoco_py `pip install "mujoco-py<2.2,>=2.0"`
+4. Import `mujoco_py` from python.
+
 ## Usage
 You should be able to activate the development enviornment by running `. path/to/setup_shell.sh`. This is the same environment that will be activated when running jobs on SLURM.
 
