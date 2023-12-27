@@ -69,6 +69,12 @@ class ModuleContainer(torch.nn.Module):
             else:
                 setattr(self, container, torch.compile(attr, **kwargs))
 
+    def forward(self, x):
+        # Use all of the modules in order
+        for container in self.CONTAINERS:
+            x = getattr(self, container)(x)
+        return x
+
 
 class ActorCriticPolicy(ModuleContainer):
     CONTAINERS = ["encoder", "actor", "critic"]

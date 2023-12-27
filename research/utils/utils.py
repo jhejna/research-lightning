@@ -304,3 +304,21 @@ def fetch_from_dict(d: Dict, keys: Union[str, List, Tuple], separator=".") -> Li
     if len(outputs) == 1:
         outputs = outputs[0]
     return outputs
+
+
+def create_optim_groups(params, kwargs):
+    # create optim groups. Any parameters that is 2D or higher will be weight decayed, otherwise no.
+    # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+    params = list(params)
+    if kwargs.get("weight_decay", 0.0) == 0.0:
+        group = {"params": [p for p in params if p.requires_grad]}
+        group.update(kwargs)
+        return (group,)
+    else:
+        # We have a decay group
+        decay_group = {"params": [p for p in params if p.dim() >= 2 and p.requires_grad]}
+        no_decay_group = {"params": [p for p in params if p.dim() < 2 and p.requires_grad]}
+        decay_group.update(kwargs)
+        no_decay_group.update(kwargs)
+        no_decay_group["weight_decay"] = 0.0
+        return (decay_group, no_decay_group)
