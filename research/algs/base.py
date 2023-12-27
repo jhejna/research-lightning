@@ -38,6 +38,7 @@ class Algorithm(ABC):
         # Initialize the _save_keys attribute using the superclass.
         # These are used for automatically identifying keys for saving/loading.
         super().__setattr__("_save_keys", set())
+        super().__setattr__("_module_keys", set())
         super().__setattr__("_compiled", False)
 
         # Save relevant values
@@ -77,6 +78,7 @@ class Algorithm(ABC):
         self._training = False
 
         # Load a check point if we have one -- using non-strict enforcement.
+        # NOTE: this only loads the network and will _not_ load the optimizer checkpoint.
         if checkpoint is not None:
             self.load(checkpoint, strict=False)
 
@@ -90,17 +92,25 @@ class Algorithm(ABC):
 
     def __setattr__(self, name: str, value: Any) -> None:
         # Check to see if the value is a module etc.
-        if hasattr(self, "_save_keys") and name in self._save_keys:
+        if (hasattr(self, "_save_keys") and name in self._save_keys) or (
+            hasattr(self, "_module_keys") and name in self._module_keys
+        ):
             pass
         elif isinstance(value, torch.nn.Parameter):
             self._save_keys.add(name)
-        elif isinstance(value, torch.nn.Module) and sum(p.numel() for p in value.parameters()) > 0:
-            self._save_keys.add(name)  # store if we have a module with more than zero parameters.
+        elif isinstance(value, torch.nn.Module):
+            self._module_keys.add(name)
+            if sum(p.numel() for p in value.parameters()) > 0:
+                self._save_keys.add(name)  # store if we have a module with more than zero parameters.
         return super().__setattr__(name, value)
 
     @property
     def save_keys(self) -> List[str]:
         return self._save_keys
+
+    @property
+    def module_keys(self) -> List[str]:
+        return self._module_keys
 
     @property
     def compiled(self) -> bool:
@@ -131,17 +141,13 @@ class Algorithm(ABC):
         self._compiled = True
 
     def train(self) -> None:
-        for k in self._save_keys:
-            v = getattr(self, k)
-            if isinstance(v, torch.nn.Module):
-                v.train()
+        for k in self._module_keys:
+            getattr(self, k).train()
         self._training = True
 
     def eval(self) -> None:
-        for k in self._save_keys:
-            v = getattr(self, k)
-            if isinstance(v, torch.nn.Module):
-                v.eval()
+        for k in self._module_keys:
+            getattr(self, k).eval()
         self._training = False
 
     @property
@@ -173,12 +179,14 @@ class Algorithm(ABC):
 
     def setup_processor(self, processor_class: Optional[Type[Processor]], processor_kwargs: Dict) -> None:
         if processor_class is None:
-            self.processor = Identity(self.observation_space, self.action_space)
+            processor = Identity(self.observation_space, self.action_space)
         else:
-            self.processor = processor_class(self.observation_space, self.action_space, **processor_kwargs)
+            processor = processor_class(self.observation_space, self.action_space, **processor_kwargs)
 
-        if self.processor.supports_gpu:  # move it to device if it supports GPU computation.
-            self.processor = self.processor.to(self.device)
+        if processor.supports_gpu:  # move it to device if it supports GPU computation.
+            self.processor = processor.to(self.device)
+        else:
+            self.processor = processor
 
     def setup_network(self, network_class: Type[torch.nn.Module], network_kwargs: Dict) -> None:
         self.network = network_class(

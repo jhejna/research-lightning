@@ -68,3 +68,9 @@ class ModuleContainer(torch.nn.Module):
                 attr.compile(**kwargs)
             else:
                 setattr(self, container, torch.compile(attr, **kwargs))
+
+    def forward(self, x):
+        # Use all of the modules in order
+        for container in self.CONTAINERS:
+            x = getattr(self, container)(x)
+        return x
