@@ -16,7 +16,8 @@ def load_data(path: str, exclude_keys: Optional[List[str]]) -> Dict:
         data = {k: data[k] for k in data.keys()}
     # Unnest the data to get everything in the correct format
     for k in exclude_keys:
-        del data[k]  # Remove exclude keys
+        if k in data:
+            del data[k]  # Remove exclude keys
     data = utils.nest_dict(data)
     return data
 

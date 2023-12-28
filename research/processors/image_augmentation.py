@@ -44,7 +44,7 @@ class RandomCrop(Processor):
         if isinstance(observation_space, gym.spaces.Box):
             assert is_image_space(observation_space)
             self.is_sequence = len(observation_space.shape) == 4
-            self.in_h, self.in_w = observation_space.shape[-2], observation_space[-1]
+            self.in_h, self.in_w = observation_space.shape[-2], observation_space.shape[-1]
             self.image_keys = None
         elif isinstance(observation_space, gym.spaces.Dict):
             image_keys = []
@@ -163,13 +163,14 @@ class RandomCrop(Processor):
                     images.extend([batch[k][img_key] for img_key in self.image_keys])
                     split.extend([batch[k][img_key].shape[1] for img_key in self.image_keys])
 
+        is_sequence = self.is_sequence or len(images[0].shape) > 4  # See if we have a sequence dimension
         with torch.no_grad():
             images = torch.cat(images, dim=1 if self.consistent else 0)  # This is either the seq dim or channel dim.
-            if self.is_sequence:
+            if is_sequence:
                 n, s, c, h, w = images.size()
                 images = images.view(n, s * c, h, w)  # Apply same augmentations across sequence.
             images = op(images.float())  # Apply the same augmentation to each data pt.
-            if self.is_sequence:
+            if is_sequence:
                 images = images.view(n, s, c, h, w)
             # Split according to the dimension 1 splits
             images = torch.split(images, split, dim=1 if self.consistent else 0)

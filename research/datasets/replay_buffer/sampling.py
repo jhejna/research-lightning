@@ -54,7 +54,12 @@ def _get_ep_idxs(storage: Storage, batch_size: int = 1, sample_by_timesteps: boo
 
 
 def sample(
-    storage: Storage, batch_size: int = 1, sample_by_timesteps: bool = True, stack: int = 1, stack_keys: Tuple = ()
+    storage: Storage,
+    batch_size: int = 1,
+    sample_by_timesteps: bool = True,
+    stack: int = 1,
+    stack_keys: Tuple = (),
+    discount: float = 0.99,
 ):
     """
     Default sampling for imitation learning.
@@ -80,8 +85,10 @@ def sample(
         sample_idxs = stack_idxs if k in stack_keys else idxs
         if k == "obs":
             sample_idxs = sample_idxs - 1
-        batch[k] = utils.get_from_batch(storage[k], sample_idxs)
-
+        elif k == "discount":
+            batch[k] = discount * utils.get_from_batch(storage[k], sample_idxs)
+        else:
+            batch[k] = utils.get_from_batch(storage[k], sample_idxs)
     return batch
 
 
@@ -144,6 +151,7 @@ def sample_sequence(
     seq_length: int = 1,
     seq_keys: Tuple = (),
     pad: int = 0,
+    discount: float = 0.99,
 ):
     """
     Sequence sampling for imitation learning.
@@ -173,7 +181,10 @@ def sample_sequence(
         sample_idxs = seq_idxs if k in seq_keys else idxs
         if k == "obs":
             sample_idxs = sample_idxs - 1
-        batch[k] = utils.get_from_batch(storage[k], sample_idxs)
+        elif k == "discount":
+            batch[k] = discount * utils.get_from_batch(storage[k], sample_idxs)
+        else:
+            batch[k] = utils.get_from_batch(storage[k], sample_idxs)
 
     return batch
 

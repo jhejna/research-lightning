@@ -66,6 +66,7 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         path: Optional[str] = None,
         capacity: Optional[int] = None,
         exclude_keys: Optional[List[str]] = None,
+        include_keys: Optional[Dict] = None,
         stacked_obs: bool = False,
         stacked_action: bool = False,
         distributed: bool = False,
@@ -93,6 +94,9 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             "discount": 1.0,
         }
         flattened_buffer_space = utils.flatten_dict(buffer_space)
+        if include_keys is not None:
+            flattened_buffer_space.update(include_keys)
+            print("FLATTENED BUFFER SPACE", flattened_buffer_space)
         for k in self.exclude_keys:
             if k in flattened_buffer_space:
                 del flattened_buffer_space[k]
@@ -138,9 +142,11 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
             # Construct the buffer space. Remember to exclude any exclude keys
             self._storage = storage.CircularStorage(self.buffer_space, capacity)
             # Fill the storage.
-            if self.path is not None:
-                while self._storage.size < self._storage.capacity:
-                    self._fetch_offline()
+            # if self.path is not None:
+            for data in self._current_data_generator:
+                self._storage.extend(data)
+                if self._storage.size >= self._storage.capacity:
+                    break
 
         print("[ReplayBuffer] Allocated {:.2f} GB".format(self._storage.bytes / 1024**3))
 
@@ -225,13 +231,16 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         return fetched_size
 
     def _get_dummy_transition(self, obs):
-        return {
-            "obs": obs,
-            "action": self.dummy_action,
-            "reward": 0.0,
-            "discount": 1.0,
-            "done": False,
+        flattened_buffer_space = utils.flatten_dict(self.buffer_space)
+        dummy_transition = {
+            k: v.sample() if isinstance(v, gym.Space) else v
+            for k, v in flattened_buffer_space.items()
+            if not k.startswith("obs") and not k.startswith("action")
         }
+        dummy_transition = utils.nest_dict(dummy_transition)
+        dummy_transition["obs"] = obs
+        dummy_transition["action"] = self.dummy_action
+        return dummy_transition
 
     def _reset_current_ep(self):
         ep_idx = self.num_episodes
