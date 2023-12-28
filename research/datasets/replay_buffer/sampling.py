@@ -456,4 +456,7 @@ def sample_her_sequence(
         else:
             batch[k] = utils.get_from_batch(storage[k], sample_idxs)
 
+    batch["obs"][goal_key] = desired
+    batch["horizon"] = horizon
+
     return batch
