@@ -28,11 +28,39 @@ You should now have setup a github repository with the research-lightning base. 
 
 After setting up the repo, there are a few steps before you can get started:
 1. Edit `environment_cpu.yaml` and `environment_gpu.yaml` as desired to include any additional dependencies via conda or pip. You can also change the name if desired.
-2. Create the conda environment using `conda env create -f environment_<cpu or gpu>.yaml`.
+2. Create the conda environment using `conda env create -f environment_<cpu or gpu or m1>.yaml`. Then activate the environment with `conda activate research`.
 3. Install the research package via `pip install -e .`.
 4. Modify the `setup_shell.sh` script by updated the appropriate values as needed. The `setup_shell.sh` script should load the environment, move the shell to the repository directory, and additionally setup any external dependencies. You can add any extra code here.
 
 Other default configuration values for the sweepers, particularly slurm, can be modified at the header of `tools/run_slurm.py`.
+
+### Special Instructions for M1 Mac Users.
+
+Local development is great! The `environment_m1.yaml` should support m1. However, a few extra steps are needed to install mujoco. The package currently uses `mujoco_py` to be compatible with all standard benchmarks, but that is not supported by newer mujoco builds. Here are instructions to get it working.
+
+1. Download and install Mujoco 2.1.1, found [here](https://github.com/google-deepmind/mujoco/releases/tag/2.1.1). Use the dmg file, and drag the mujoco app to applications.
+2. Make sure your python install is running on Arm:
+```
+$ lipo -archs $(which python3)
+arm64
+```
+3. Follow these instructions, adapted from [this post](https://github.com/openai/mujoco-py/issues/662#issuecomment-996081734) to install mujoco_py.
+```
+mkdir -p $HOME/.mujoco/mujoco210         # Remove existing installation if any
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/Headers/ $HOME/.mujoco/mujoco210/include
+mkdir -p $HOME/.mujoco/mujoco210/bin
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib $HOME/.mujoco/mujoco210/bin/libmujoco210.dylib
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib /usr/local/lib/
+# For MacOS Sonoma and Newer, this workaround helped. You may need to make some folders.
+ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/libmujoco.2.*.dylib $HOME/.mujoco/mujoco210/bin/MuJoCo.framework/Versions/A/libmujoco.2.1.1.dylib
+
+brew install glfw
+brew install gcc@11
+ln -sf /opt/homebrew/lib/libglfw.3.dylib $HOME/.mujoco/mujoco210/bin
+export CC=/opt/homebrew/bin/gcc-11         # see https://github.com/openai/mujoco-py/issues/605
+```
+4. Install mujoco_py `pip install "mujoco-py<2.2,>=2.0"`
+5. Import `mujoco_py` from python.
 
 ## Usage
 You should be able to activate the development enviornment by running `. path/to/setup_shell.sh`. This is the same environment that will be activated when running jobs on SLURM.
