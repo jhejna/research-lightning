@@ -1,0 +1,48 @@
+name: research
+channels:
+  - pytorch
+  - defaults
+dependencies:
+  - python
+
+  # Development
+  - conda-forge::pre-commit
+  - Cython<3.0
+
+  # pytorch
+  - pytorch::pytorch
+  - torchvision
+  - torchtext
+  - torchaudio
+
+  # NP Family
+  - numpy
+  - scipy
+  - scikit-image
+
+  # IO
+  - imageio
+  - pillow
+  - pyyaml
+  - cloudpickle
+  - h5py
+  - absl-py
+  - pyparsing
+
+  # Plotting
+  - tensorboard
+  - pandas
+  - matplotlib
+  - seaborn
+
+  # Other
+  - pytest
+  - tqdm
+  - future
+
+  # For Robosuite (But install robosuite via source)
+  - numba
+
+  - pip
+  - pip:
+      - gym==0.23.1
