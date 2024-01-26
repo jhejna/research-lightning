@@ -28,7 +28,7 @@ You should now have setup a github repository with the research-lightning base. 
 
 After setting up the repo, there are a few steps before you can get started:
 1. Edit `environment_cpu.yaml` and `environment_gpu.yaml` as desired to include any additional dependencies via conda or pip. You can also change the name if desired.
-2. Create the conda environment using `conda env create -f environment_<cpu or gpu>.yaml`.
+2. Create the conda environment using `conda env create -f environment_<cpu or gpu or m1>.yaml`. Then activate the environment with `conda activate research`.
 3. Install the research package via `pip install -e .`.
 4. Modify the `setup_shell.sh` script by updated the appropriate values as needed. The `setup_shell.sh` script should load the environment, move the shell to the repository directory, and additionally setup any external dependencies. You can add any extra code here.
 
@@ -39,7 +39,12 @@ Other default configuration values for the sweepers, particularly slurm, can be 
 Local development is great! The `environment_m1.yaml` should support m1. However, a few extra steps are needed to install mujoco. The package currently uses `mujoco_py` to be compatible with all standard benchmarks, but that is not supported by newer mujoco builds. Here are instructions to get it working.
 
 1. Download and install Mujoco 2.1.1, found [here](https://github.com/google-deepmind/mujoco/releases/tag/2.1.1). Use the dmg file, and drag the mujoco app to applications.
-2. Follow these instructions, adapted from [this post](https://github.com/openai/mujoco-py/issues/662#issuecomment-996081734) to install mujoco_py.
+2. Make sure your python install is running on Arm:
+```
+$ lipo -archs $(which python3)
+arm64
+```
+3. Follow these instructions, adapted from [this post](https://github.com/openai/mujoco-py/issues/662#issuecomment-996081734) to install mujoco_py.
 ```
 mkdir -p $HOME/.mujoco/mujoco210         # Remove existing installation if any
 ln -sf /Applications/MuJoCo.app/Contents/Frameworks/MuJoCo.framework/Versions/Current/Headers/ $HOME/.mujoco/mujoco210/include
