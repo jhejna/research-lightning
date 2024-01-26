@@ -12,6 +12,7 @@ from research.utils import utils
 
 class Algorithm(ABC):
     _save_keys: Set[str]
+    _module_keys: Set[str]
     _compiled: bool
 
     def __init__(
@@ -141,12 +142,12 @@ class Algorithm(ABC):
         self._compiled = True
 
     def train(self) -> None:
-        for k in self._module_keys:
+        for k in self.module_keys:
             getattr(self, k).train()
         self._training = True
 
     def eval(self) -> None:
-        for k in self._module_keys:
+        for k in self.module_keys:
             getattr(self, k).eval()
         self._training = False
 
@@ -167,7 +168,7 @@ class Algorithm(ABC):
     def nbytes(self):
         # Returns the size of all the parameters in bytes
         _bytes = 0
-        for k in self.save_keys:
+        for k in self.module_keys:
             attr = getattr(self, k)
             if hasattr(attr, "parameters"):
                 for p in attr.parameters():
@@ -200,7 +201,7 @@ class Algorithm(ABC):
         """
         # Setup Optimizers
         assert len(self.optim) == 0, "setup_optimizers called twice!"
-        for k in self.save_keys:
+        for k in self.module_keys:
             attr = getattr(self, k)
             if hasattr(attr, "parameters"):
                 parameters = attr.parameters()
