@@ -1,4 +1,5 @@
 import math
+from typing import Callable, Optional, Union
 
 import gym
 import numpy as np
@@ -14,10 +15,11 @@ class RobomimicEncoder(torch.nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        pretrain="supervised",
         num_kp=64,
         freeze_resnet=False,
-        backbone=18,
+        backbone: Union[18, 34, 50] = 18,
+        use_group_norm: bool = False,
+        feature_dim: Optional[int] = None,
     ):
         super().__init__()
         assert len(observation_space.shape) == 3
@@ -26,26 +28,44 @@ class RobomimicEncoder(torch.nn.Module):
             mean=[0.485, 0.456, 0.406, 0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
         )
 
+        if use_group_norm:
+
+            def norm_layer(dim):
+                return nn.GroupNorm(dim // 16, dim)
+
+        else:
+            norm_layer = None
+
         input_channel = observation_space.shape[0]
-        self.resnet = ResNet(input_channel=input_channel, backbone=backbone, pretrain=pretrain)
+        self.resnet = ResNet(input_channel=input_channel, backbone=backbone, norm_layer=norm_layer)
         resnet_output_shape = self.resnet.output_shape(observation_space.shape)
+
         self.spatial_softmax = SpatialSoftmax(input_shape=resnet_output_shape, num_kp=num_kp)
         spatial_softmax_output_shape = self.spatial_softmax.output_shape(resnet_output_shape)
         self.repr_dim = np.prod(spatial_softmax_output_shape)
         self.flatten = nn.Flatten()
 
         if freeze_resnet:
+            assert not use_group_norm, "Cannot freeze weights when using group norm, since its not trained."
             self.resnet.requires_grad_(False)
             if input_channel != 3:
                 conv1 = self.resnet.nets[0]
                 conv1.requires_grad_(True)  # since this is not pretrained
 
-    def forward(self, obs):
-        obs = obs.float() / 255.0
-        obs = self.normlayer(obs)
-        h = self.resnet(obs)
+        if feature_dim is not None and self.repr_dim != feature_dim:
+            self.proj = nn.Linear(self.repr_dim, feature_dim)
+            self.repr_dim = feature_dim
+        else:
+            self.proj = nn.Identity()
+
+    def forward(self, img):
+        assert isinstance(img, torch.uint8)
+        img = img.float() / 255.0
+        img = self.normlayer(img)
+        h = self.resnet(img)
         h = self.spatial_softmax(h)
         h = self.flatten(h)
+        h = self.proj(h)
         return h
 
     @property
@@ -58,18 +78,12 @@ class ResNet(torch.nn.Module):
     A ResNet block that can be used to process input images.
     """
 
-    def __init__(
-        self,
-        input_channel: int = 3,
-        backbone: int = 18,
-        pretrain: str = "supervised",
-    ):
+    def __init__(self, input_channel: int = 3, backbone: int = 18, norm_layer: Optional[Callable] = None):
         """
         Args:
             input_channel (int): number of input channels for input images to the network.
                 If not equal to 3, modifies first conv layer in ResNet to handle the number
                 of input channels.
-            pretrained (bool): if True, load pretrained weights for all ResNet layers.
             input_coord_conv (bool): if True, use a coordinate convolution for the first layer
                 (a convolution where input channels are modified to encode spatial pixel location)
         """
@@ -79,7 +93,7 @@ class ResNet(torch.nn.Module):
             34: (vision_models.resnet34, vision_models.ResNet34_Weights.DEFAULT),
             50: (vision_models.resnet50, vision_models.ResNet50_Weights.DEFAULT),
         }[backbone]
-        net = model_cls(weights=weights)
+        net = model_cls(weights=weights, norm_layer=norm_layer)
 
         if input_channel != 3:
             net.conv1 = nn.Conv2d(input_channel, 64, kernel_size=7, stride=2, padding=3, bias=False)

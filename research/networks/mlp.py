@@ -3,6 +3,7 @@ from functools import partial
 from typing import Optional, Type
 
 import gym
+import numpy as np
 import torch
 from torch import distributions as D
 from torch import nn
@@ -37,11 +38,16 @@ class MLPEncoder(nn.Module):
         assert len(hidden_layers) > 1, "Must have at least one hidden layer for a shared MLP Extractor"
         self.mlp = MLP(observation_space.shape[0], hidden_layers[-1], hidden_layers=hidden_layers[:-1], **kwargs)
         self.ortho_init = ortho_init
+        self.output_dim = hidden_layers[-1]
         self.reset_parameters()
 
     def reset_parameters(self):
         if self.ortho_init:
             self.apply(partial(weight_init, gain=float(self.ortho_init)))  # use the fact that True converts to 1.0
+
+    @property
+    def output_space(self) -> gym.Space:
+        return gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.output_dim,), dtype=np.float32)
 
     def forward(self, obs):
         return self.mlp(obs)

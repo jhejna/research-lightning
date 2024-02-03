@@ -4,7 +4,7 @@ import gym
 import numpy as np
 import torch
 
-from research.networks.base import ActorPolicy
+from research.utils import utils
 
 from ..off_policy_algorithm import OffPolicyAlgorithm
 
@@ -28,24 +28,11 @@ class BehaviorCloning(OffPolicyAlgorithm):
         """
         # create optim groups. Any parameters that is 2D or higher will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_group = {"params": [p for p in self.network.parameters() if p.dim() >= 2 and p.requires_grad]}
-        no_decay_group = {"params": [p for p in self.network.parameters() if p.dim() < 2 and p.requires_grad]}
-        decay_group.update(self.optim_kwargs)
-        no_decay_group.update(self.optim_kwargs)
-        no_decay_group["weight_decay"] = 0.0
-        self.optim["network"] = self.optim_class((decay_group, no_decay_group))
+        groups = utils.create_optim_groups(self.network.parameters(), self.optim_kwargs)
+        self.optim["network"] = self.optim_class(groups)
 
-    def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
-        """
-        Overriding the Algorithm BaseClass Method _train_step.
-        Returns a dictionary of training metrics.
-        """
-        self.optim["network"].zero_grad(set_to_none=True)
-        if isinstance(self.network, ActorPolicy):
-            z = self.network.encoder(batch["obs"])
-            dist = self.network.actor(z)
-        else:
-            dist = self.network(batch)
+    def _compute_loss(self, batch: Dict):
+        dist = self.network(batch["obs"])
 
         if isinstance(dist, torch.distributions.Distribution):
             loss = -dist.log_prob(batch["action"])  # NLL Loss
@@ -59,14 +46,22 @@ class BehaviorCloning(OffPolicyAlgorithm):
         # Aggregate the losses
         if "mask" in batch:
             assert batch["mask"].shape == loss.shape
-            mask = 1 - batch["mask"].float()
+            mask = (1 - batch["mask"]).float()
             loss = mask * loss
             size = mask.sum()  # how many elements we train on.
         else:
             size = loss.numel()
 
         loss = loss.sum() / size
+        return loss
 
+    def train_step(self, batch: Dict, step: int, total_steps: int) -> Dict:
+        """
+        Overriding the Algorithm BaseClass Method train_step.
+        Returns a dictionary of training metrics.
+        """
+        self.optim["network"].zero_grad(set_to_none=True)
+        loss = self._compute_loss()
         loss.backward()
         if self.grad_norm_clip is not None:
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.grad_norm_clip)
@@ -76,37 +71,11 @@ class BehaviorCloning(OffPolicyAlgorithm):
 
     def validation_step(self, batch: Any) -> Dict:
         """
-        Overriding the Algorithm BaseClass Method _train_step.
+        Overriding the Algorithm BaseClass Method validation_step.
         Returns a dictionary of validation metrics.
         """
         with torch.no_grad():
-            if isinstance(self.network, ActorPolicy):
-                z = self.network.encoder(batch["obs"])
-                dist = self.network.actor(z)
-            else:
-                dist = self.network(batch)
-
-            if isinstance(dist, torch.distributions.Distribution):
-                loss = -dist.log_prob(batch["action"])  # NLL Loss
-            elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Box):
-                loss = torch.nn.functional.mse_loss(dist, batch["action"], reduction="none")  # MSE Loss
-            elif torch.is_tensor(dist) and isinstance(self.processor.action_space, gym.spaces.Discrete):
-                loss = torch.nn.functional.cross_entropy(
-                    dist, batch["action"], ignore_index=IGNORE_INDEX, reduction="none"
-                )
-            else:
-                raise ValueError("Invalid Policy output")
-
-            # Aggregate the losses
-            if "mask" in batch:
-                assert batch["mask"].shape == loss.shape
-                mask = 1 - batch["mask"].float()
-                loss = mask * loss
-                size = mask.sum()  # how many elements we train on.
-            else:
-                size = loss.numel()
-
-            loss = loss.sum() / size
+            loss = self._compute_loss(batch)
 
         return dict(loss=loss.item())
 

@@ -16,14 +16,15 @@ def is_image_space(space):
     return is_image_space
 
 
-def modify_space_hw(space, h, w):
+def modify_space_hw(space, h, w, dtype=None):
     if isinstance(space, gym.spaces.Box) and is_image_space(space):
         shape = list(space.shape)
         shape[-2] = h
         shape[-1] = w
-        return gym.spaces.Box(low=0, high=255, shape=shape, dtype=np.uint8)
+        dtype = space.dtype if dtype is None else dtype
+        return gym.spaces.Box(low=0, high=255, shape=shape, dtype=dtype)
     elif isinstance(space, gym.spaces.Dict):
-        return gym.spaces.Dict({k: modify_space_hw(v, h, w) for k, v in space.items()})
+        return gym.spaces.Dict({k: modify_space_hw(v, h, w, dtype=dtype) for k, v in space.items()})
     else:
         return space
 
@@ -169,7 +170,7 @@ class RandomCrop(Processor):
             if is_sequence:
                 n, s, c, h, w = images.size()
                 images = images.view(n, s * c, h, w)  # Apply same augmentations across sequence.
-            images = op(images.float())  # Apply the same augmentation to each data pt.
+            images = op(images)  # Apply the same augmentation to each data pt.
             if is_sequence:
                 images = images.view(n, s, c, h, w)
             # Split according to the dimension 1 splits

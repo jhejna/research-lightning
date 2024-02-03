@@ -1,6 +1,7 @@
 from functools import partial
 
 import gym
+import numpy as np
 import torch
 
 import research
@@ -74,6 +75,45 @@ class ModuleContainer(torch.nn.Module):
         for container in self.CONTAINERS:
             x = getattr(self, container)(x)
         return x
+
+
+class MultiEncoder(torch.nn.Module):
+    def __init__(self, observation_space: gym.Space, action_space: gym.Space, **kwargs):
+        super().__init__()
+        assert isinstance(observation_space, gym.spaces.Dict)
+        base_kwargs = {k: v for k, v in kwargs.items() if not k.endswith("_class") and not k.endswith("_kwargs")}
+        # parse unique modalities from args that are passed with "class"
+        self.obs_keys = sorted([k[: -len("_class")] for k in kwargs if k.endswith("_class")])
+        assert all([k in observation_space for k in self.obs_keys])
+
+        modules = dict()
+        for k in self.obs_keys:
+            # Build the modules
+            module_class = kwargs[k + "_class"]
+            module_class = vars(research.networks)[module_class] if isinstance(module_class, str) else module_class
+            module_kwargs = base_kwargs.copy()
+            module_kwargs.update(kwargs.get(k + "_kwargs", dict()))
+            module = module_class(observation_space[k], action_space, **module_kwargs)
+            modules[k] = module
+
+        # register all the modules
+        self.modules = torch.nn.ModuleDict(modules)
+
+        # compute the output space
+        output_dim = 0
+        for k in self.obs_keys:
+            output_shape = self.modules[k].output_space
+            assert len(output_shape) == 1
+            output_dim += output_shape[0]
+
+        self.output_dim = output_dim
+
+    @property
+    def output_space(self) -> gym.Space:
+        return gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.output_dim,), dtype=np.float32)
+
+    def forward(self, obs):
+        return torch.cat([self.modules[k](obs[k]) for k in self.obs_keys], dim=-1)
 
 
 class ActorCriticPolicy(ModuleContainer):

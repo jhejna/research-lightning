@@ -1,5 +1,6 @@
 # Register Network Classes here.
-from .base import ActorCriticPolicy, ActorCriticValuePolicy, ActorPolicy, ActorValuePolicy
+from .base import ActorCriticPolicy, ActorCriticValuePolicy, ActorPolicy, ActorValuePolicy, MultiEncoder
+from .diffusion import ConditionalUnet1D, MLPResNet
 from .drqv2 import DrQv2Actor, DrQv2Critic, DrQv2Encoder, DrQv2Value
 from .mlp import (
     ContinuousMLPActor,
@@ -10,4 +11,4 @@ from .mlp import (
     MLPEncoder,
     MLPValue,
 )
-from .transformer import TransformerStateSequenceEncoder
+from .transformer import StateTransformerEncoder
