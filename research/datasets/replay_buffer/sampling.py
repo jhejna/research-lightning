@@ -77,12 +77,12 @@ def sample(
     batch = {}  # initialize the batch so we can write masks.
 
     if stack > 1:
-        assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
+        assert len(stack_keys) > 0, "Provided stack > 1 but no stack keys"
         stack_idxs = np.expand_dims(idxs, axis=-1) + np.arange(-stack + 1, 1)
         stack_idxs = np.maximum(stack_idxs, np.expand_dims(starts, axis=-1))
 
     if seq > 1:
-        assert len(seq_keys) > 1, "Provided seq_length > 1 but no seq keys"
+        assert len(seq_keys) > 0, "Provided seq_length > 1 but no seq keys"
         seq_idxs = np.expand_dims(idxs, axis=-1) + np.arange(seq)  # (B, T)
         # Compute the mask BEFORE we trim down to end
         mask = seq_idxs > np.expand_dims(ends, axis=-1)
@@ -129,7 +129,7 @@ def sample_qlearning(
     idxs = np.random.randint(starts, ends - (nstep - 1)) + 1
 
     if stack > 1:
-        assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
+        assert len(stack_keys) > 0, "Provided stack > 1 but no stack keys"
         stack_idxs = np.expand_dims(idxs, axis=-1) + np.arange(-stack + 1, 1)
         stack_idxs = np.maximum(stack_idxs, np.expand_dims(starts, axis=-1))
 
@@ -181,12 +181,12 @@ def sample_her(
     batch = {}  # initialize the batch so we can write masks.
 
     if stack > 1:
-        assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
+        assert len(stack_keys) > 0, "Provided stack > 1 but no stack keys"
         stack_idxs = np.expand_dims(idxs, axis=-1) + np.arange(-stack + 1, 1)
         stack_idxs = np.maximum(stack_idxs, np.expand_dims(starts, axis=-1))
 
     if seq > 1:
-        assert len(seq_keys) > 1, "Provided seq_length > 1 but no seq keys"
+        assert len(seq_keys) > 0, "Provided seq_length > 1 but no seq keys"
         seq_idxs = np.expand_dims(idxs, axis=-1) + np.arange(seq)  # (B, T)
         # Compute the mask BEFORE we trim down to end
         mask = seq_idxs > np.expand_dims(ends, axis=-1)
@@ -281,7 +281,7 @@ def sample_her_qlearning(
     idxs = np.random.randint(starts, ends - (nstep - 1)) + 1
 
     if stack > 1:
-        assert len(stack_keys) > 1, "Provided stack > 1 but no stack keys"
+        assert len(stack_keys) > 0, "Provided stack > 1 but no stack keys"
         stack_idxs = np.expand_dims(idxs, axis=-1) + np.arange(-stack + 1, 1)
         stack_idxs = np.maximum(stack_idxs, np.expand_dims(starts, axis=-1))
 

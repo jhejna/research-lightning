@@ -15,18 +15,18 @@ class RobomimicEncoder(torch.nn.Module):
         self,
         observation_space: gym.Space,
         action_space: gym.Space,
-        num_kp=64,
-        freeze_resnet=False,
+        num_kp: int = 64,
+        pretrain: bool = False,
+        freeze_resnet: bool = False,
         backbone: Union[18, 34, 50] = 18,
         use_group_norm: bool = False,
         feature_dim: Optional[int] = None,
     ):
         super().__init__()
         assert len(observation_space.shape) == 3
+        assert observation_space.shape[0] == 3, "Must use RGB Images for normalizer"
 
-        self.normlayer = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406, 0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
-        )
+        self.normlayer = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 
         if use_group_norm:
 
@@ -37,7 +37,7 @@ class RobomimicEncoder(torch.nn.Module):
             norm_layer = None
 
         input_channel = observation_space.shape[0]
-        self.resnet = ResNet(input_channel=input_channel, backbone=backbone, norm_layer=norm_layer)
+        self.resnet = ResNet(input_channel=input_channel, backbone=backbone, pretrain=pretrain, norm_layer=norm_layer)
         resnet_output_shape = self.resnet.output_shape(observation_space.shape)
 
         self.spatial_softmax = SpatialSoftmax(input_shape=resnet_output_shape, num_kp=num_kp)
@@ -59,7 +59,6 @@ class RobomimicEncoder(torch.nn.Module):
             self.proj = nn.Identity()
 
     def forward(self, img):
-        assert isinstance(img, torch.uint8)
         img = img.float() / 255.0
         img = self.normlayer(img)
         h = self.resnet(img)
@@ -78,7 +77,9 @@ class ResNet(torch.nn.Module):
     A ResNet block that can be used to process input images.
     """
 
-    def __init__(self, input_channel: int = 3, backbone: int = 18, norm_layer: Optional[Callable] = None):
+    def __init__(
+        self, input_channel: int = 3, backbone: int = 18, pretrain: bool = True, norm_layer: Optional[Callable] = None
+    ):
         """
         Args:
             input_channel (int): number of input channels for input images to the network.
@@ -93,6 +94,7 @@ class ResNet(torch.nn.Module):
             34: (vision_models.resnet34, vision_models.ResNet34_Weights.DEFAULT),
             50: (vision_models.resnet50, vision_models.ResNet50_Weights.DEFAULT),
         }[backbone]
+        weights = weights if pretrain else None
         net = model_cls(weights=weights, norm_layer=norm_layer)
 
         if input_channel != 3:

@@ -51,7 +51,7 @@ class DiffusionPolicy(OffPolicyAlgorithm):
         assert T == self.horizon, "Received unexpected temporal dimension."
         noise = torch.randn_like(batch["action"])
         timesteps = torch.randint(
-            low=0, high=self.scheduler.config.num_train_timesteps, size=(B,), device=self.device
+            low=0, high=self.noise_scheduler.config.num_train_timesteps, size=(B,), device=self.device
         ).long()
         noisy_actions = self.noise_scheduler.add_noise(batch["action"], noise, timesteps)
 

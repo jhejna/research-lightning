@@ -109,7 +109,7 @@ class RandomCrop(Processor):
 
     @property
     def observation_space(self):
-        return modify_space_hw(self._observation_space, self.out_h, self.out_w)
+        return modify_space_hw(self._observation_space, self.out_h, self.out_w, dtype=np.float32)
 
     def _aug(self, x: torch.Tensor) -> torch.Tensor:
         size = x.size()
@@ -170,7 +170,7 @@ class RandomCrop(Processor):
             if is_sequence:
                 n, s, c, h, w = images.size()
                 images = images.view(n, s * c, h, w)  # Apply same augmentations across sequence.
-            images = op(images)  # Apply the same augmentation to each data pt.
+            images = op(images.float())  # Apply the same augmentation to each data pt.
             if is_sequence:
                 images = images.view(n, s, c, h, w)
             # Split according to the dimension 1 splits

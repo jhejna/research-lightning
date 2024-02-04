@@ -11,4 +11,5 @@ from .mlp import (
     MLPEncoder,
     MLPValue,
 )
+from .resnet import RobomimicEncoder
 from .transformer import StateTransformerEncoder

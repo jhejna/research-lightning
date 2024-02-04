@@ -3,11 +3,11 @@ alg_kwargs:
   # Configure offline steps. These aren't needed, but good to set.
   offline_steps: -1
   random_steps: 0
-  scheduler: ["import", "diffusers.schedulers.scheduling_ddim", "DDIMScheduler"]
-  scheduler_kwargs:
+  noise_scheduler: ["import", "diffusers.schedulers.scheduling_ddim", "DDIMScheduler"]
+  noise_scheduler_kwargs:
     num_train_timesteps: 100
     beta_start: 0.0001
-    beta_send: 0.02
+    beta_end: 0.02
     beta_schedule: squaredcos_cap_v2
     clip_sample: True
     set_alpha_to_one: True
@@ -29,20 +29,25 @@ network: ActorPolicy
 network_kwargs:
   encoder_class: MultiEncoder
   encoder_kwargs:
-    wrist_image_class: RobomimicEncoder
-    wrist_image_kwargs:
+    agentview_image_class: RobomimicEncoder
+    agentview_image_kwargs:
       backbone: 18
       feature_dim: 64
       use_group_norm: True
       num_kp: 64
-    agent_image_class: RobomimicEncoder
-    agent_image_kwargs:
+    robot0_eye_in_hand_image_class: RobomimicEncoder
+    robot0_eye_in_hand_image_kwargs:
       backbone: 18
       feature_dim: 64
       use_group_norm: True
       num_kp: 64
-    state_class: ["import", "torch.nn", "Identity"] 
-  actor_class: Conditional1DUnet
+    robot0_eef_pos_class: ["import", "torch.nn", "Identity"]
+    robot0_eef_quat_class: ["import", "torch.nn", "Identity"]
+    robot0_eef_vel_lin_class: ["import", "torch.nn", "Identity"]
+    robot0_eef_vel_ang_class: ["import", "torch.nn", "Identity"]
+    robot0_gripper_qpos_class: ["import", "torch.nn", "Identity"]
+
+  actor_class: ConditionalUnet1D
   actor_kwargs:
     diffusion_step_embed_dim: 128
     down_dims: [256, 512, 1024] # This is [512, 1024, 2048]
@@ -52,27 +57,27 @@ network_kwargs:
 # Example config using Robomimic.
 eval_env: RobomimicEnv
 eval_env_kwargs:
-  path: path/to/robomimic/dataset
+  path: path/to/robomimic/can/ph/image.hdf5
   horizon: 400
+  channels_first: True
 
 dataset: RobomimicDataset
 dataset_kwargs:
-  path: path/to/robomimic/dataset
+  path: path/to/robomimic/can/ph/image.hdf5
   sample_fn: sample
   sample_kwargs:
     batch_size: 64
     seq: 16
     pad: 8
     seq_keys: ["action"]
+  distributed: True
 validation_dataset_kwargs:
   train: False
 
-schedule:
-  actor: cosine_with_linear_warmup
+schedule: cosine_with_linear_warmup
 schedule_kwargs:
-  actor:
-    warmup_steps: 2000
-    total_steps: 500000
+  warmup_steps: 2000
+  total_steps: 500000
 
 processor: RandomCrop
 

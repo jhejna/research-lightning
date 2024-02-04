@@ -84,7 +84,7 @@ class MultiEncoder(torch.nn.Module):
         base_kwargs = {k: v for k, v in kwargs.items() if not k.endswith("_class") and not k.endswith("_kwargs")}
         # parse unique modalities from args that are passed with "class"
         self.obs_keys = sorted([k[: -len("_class")] for k in kwargs if k.endswith("_class")])
-        assert all([k in observation_space for k in self.obs_keys])
+        assert all([k in set(observation_space.keys()) for k in self.obs_keys])
 
         modules = dict()
         for k in self.obs_keys:
@@ -97,12 +97,17 @@ class MultiEncoder(torch.nn.Module):
             modules[k] = module
 
         # register all the modules
-        self.modules = torch.nn.ModuleDict(modules)
+        self.encoders = torch.nn.ModuleDict(modules)
 
         # compute the output space
         output_dim = 0
         for k in self.obs_keys:
-            output_shape = self.modules[k].output_space
+            module = self.encoders[k]
+            if hasattr(module, "output_space"):
+                output_shape = module.output_space.shape
+            else:
+                assert isinstance(module, torch.nn.Identity)
+                output_shape = observation_space[k].shape
             assert len(output_shape) == 1
             output_dim += output_shape[0]
 
@@ -113,7 +118,7 @@ class MultiEncoder(torch.nn.Module):
         return gym.spaces.Box(low=-np.inf, high=np.inf, shape=(self.output_dim,), dtype=np.float32)
 
     def forward(self, obs):
-        return torch.cat([self.modules[k](obs[k]) for k in self.obs_keys], dim=-1)
+        return torch.cat([self.encoders[k](obs[k]) for k in self.obs_keys], dim=-1)
 
 
 class ActorCriticPolicy(ModuleContainer):

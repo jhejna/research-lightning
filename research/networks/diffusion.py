@@ -4,13 +4,12 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import torch
-import torch.nn as nn
-
-from typing import Union, Optional
-import torch
-import torch.nn as nn
 import math
+from typing import Callable, Optional, Union
+
+import gym
+import torch
+import torch.nn as nn
 
 
 class SinusoidalPosEmb(nn.Module):
@@ -79,16 +78,10 @@ class ConditionalResidualBlock1D(nn.Module):
         # predicts per-channel scale and bias
         cond_channels = out_channels * 2
         self.out_channels = out_channels
-        self.cond_encoder = nn.Sequential(
-            nn.Mish(), nn.Linear(cond_dim, cond_channels), nn.Unflatten(-1, (-1, 1))
-        )
+        self.cond_encoder = nn.Sequential(nn.Mish(), nn.Linear(cond_dim, cond_channels), nn.Unflatten(-1, (-1, 1)))
 
         # make sure dimensions compatible
-        self.residual_conv = (
-            nn.Conv1d(in_channels, out_channels, 1)
-            if in_channels != out_channels
-            else nn.Identity()
-        )
+        self.residual_conv = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
 
     def forward(self, x, cond):
         """
@@ -114,17 +107,14 @@ class ConditionalResidualBlock1D(nn.Module):
 class ConditionalUnet1D(nn.Module):
     def __init__(
         self,
-        input_dim,
-        global_cond_dim,
+        observation_space,
+        action_space,
         diffusion_step_embed_dim=256,
-        down_dims=[256, 512, 1024],
+        down_dims=(256, 512, 1024),
         kernel_size=3,
         n_groups=8,
     ):
         """
-        input_dim: Dim of actions.
-        global_cond_dim: Dim of global conditioning applied with FiLM
-            in addition to diffusion step embedding. This is usually obs_horizon * obs_dim
         diffusion_step_embed_dim: Size of positional encoding for diffusion iteration k
         down_dims: Channel size for each UNet level.
             The length of this array determines numebr of levels.
@@ -132,7 +122,14 @@ class ConditionalUnet1D(nn.Module):
         n_groups: Number of groups for GroupNorm
         """
         super().__init__()
-        all_dims = [input_dim] + list(down_dims)
+        assert isinstance(action_space, gym.spaces.Box)
+        assert len(action_space.shape) == 1
+        input_dim = action_space.shape[0]
+        assert isinstance(observation_space, gym.spaces.Box)
+        assert len(observation_space.shape) == 1
+        global_cond_dim = observation_space.shape[0]
+
+        all_dims = [input_dim, *list(down_dims)]
         start_dim = down_dims[0]
 
         dsed = diffusion_step_embed_dim
@@ -223,12 +220,12 @@ class ConditionalUnet1D(nn.Module):
         self,
         sample: torch.Tensor,
         timestep: Union[torch.Tensor, int],
-        global_cond: Optional[torch.Tensor] = None,
+        cond: Optional[torch.Tensor] = None,
     ):
         """
         x: (B,T,input_dim)
         timestep: (B,) or int, diffusion step
-        global_cond: (B,global_cond_dim)
+        cond: (B, cond_dim)
         output: (B,T,input_dim)
         """
         # (B,T,C)
@@ -248,12 +245,12 @@ class ConditionalUnet1D(nn.Module):
 
         global_feature: torch.Tensor = self.diffusion_step_encoder(timesteps)
 
-        if global_cond is not None:
-            global_feature = torch.cat([global_feature, global_cond], dim=-1)
+        if cond is not None:
+            global_feature = torch.cat([global_feature, cond], dim=-1)
 
         x = sample
         h = []
-        for idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
+        for _idx, (resnet, resnet2, downsample) in enumerate(self.down_modules):
             x = resnet(x, global_feature)
             x = resnet2(x, global_feature)
             h.append(x)
@@ -262,7 +259,7 @@ class ConditionalUnet1D(nn.Module):
         for mid_module in self.mid_modules:
             x = mid_module(x, global_feature)
 
-        for idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
+        for _idx, (resnet, resnet2, upsample) in enumerate(self.up_modules):
             x = torch.cat((x, h.pop()), dim=1)
             x = resnet(x, global_feature)
             x = resnet2(x, global_feature)
@@ -277,19 +274,14 @@ class ConditionalUnet1D(nn.Module):
 
 
 class MLPResNetBlock(nn.Module):
-
-    def __init__(self, dim: int, use_layer_norm: bool= False, dropout: float = 0.0, act: Callable = nn.Mish):
+    def __init__(self, dim: int, use_layer_norm: bool = False, dropout: float = 0.0, act: Callable = nn.Mish):
         super().__init__()
         net = []
         if dropout > 0:
             net.append(nn.Dropout(dropout))
         if use_layer_norm:
             net.append(nn.LayerNorm(dim))
-        net.extend([
-            nn.Linear(dim, 4*dim),
-            act(),
-            nn.Linear(4*dim, dim)
-        ])
+        net.extend([nn.Linear(dim, 4 * dim), act(), nn.Linear(4 * dim, dim)])
         self.net = nn.Sequential(*net)
 
     def forward(self, x):
@@ -297,22 +289,33 @@ class MLPResNetBlock(nn.Module):
 
 
 class MLPResNet(nn.Module):
-    def __init__(self, observation_space, action_space, num_blocks: int = 3, time_dim: int = 64, hidden_dim = 256, dropout: float = 0.0, use_layer_norm: bool = True, act=nn.Mish):
+    def __init__(
+        self,
+        observation_space,
+        action_space,
+        num_blocks: int = 3,
+        time_dim: int = 64,
+        hidden_dim=256,
+        dropout: float = 0.0,
+        use_layer_norm: bool = True,
+        act=nn.Mish,
+    ):
         self.time_net = nn.Sequential(
-            SinusoidalPosEmb(time_dim),
-            nn.Linear(time_dim, time_dim),
-            act(),
-            nn.Linear(time_dim, time_dim)
+            SinusoidalPosEmb(time_dim), nn.Linear(time_dim, time_dim), act(), nn.Linear(time_dim, time_dim)
         )
         act_dim = action_space.shape[0]
         cond_dim = observation_space.shape[0]
         self.proj = nn.Linear(act_dim + cond_dim + time_dim, hidden_dim)
-        self.net = nn.Sequential(*(MLPResNetBlock(hidden_dim, dropout=dropout, use_layer_norm=use_layer_norm, act=act) for _ in range(num_blocks)))
+        self.net = nn.Sequential(
+            *(
+                MLPResNetBlock(hidden_dim, dropout=dropout, use_layer_norm=use_layer_norm, act=act)
+                for _ in range(num_blocks)
+            )
+        )
         self.out = nn.Sequential(nn.ReLU(), nn.Linear(hidden_dim, act_dim))
 
-    def forward(self, sample: torch.Tensor, timestep: torch.Tensor, global_cond: torch.Tensor, local_cond=None):
-        assert local_cond is None
-        x = torch.cat((sample, self.time_net(timestep), global_cond), axis=-1)
+    def forward(self, sample: torch.Tensor, timestep: torch.Tensor, cond: torch.Tensor):
+        x = torch.cat((sample, self.time_net(timestep), cond), axis=-1)
         x = self.proj(x)
         x = self.net(x)
         x = self.out(x)

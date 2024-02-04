@@ -15,10 +15,16 @@ class RobomimicDataset(ReplayBuffer):
     Simple Class that writes the data from the RoboMimicDatasets into a ReplayBuffer
     """
 
-    def __init__(self, *args, action_eps: Optional[float] = 1e-5, train=True, **kwargs):
+    def __init__(
+        self, observation_space, action_space, *args, action_eps: Optional[float] = 1e-5, train=True, **kwargs
+    ):
         self.action_eps = action_eps
         self.train = train
-        super().__init__(*args, **kwargs)
+        self.channels_first_keys = []
+        for k in observation_space.keys():
+            if "image" in k and observation_space[k].shape[0] == 3:
+                self.channels_first_keys.append(k)
+        super().__init__(observation_space, action_space, *args, **kwargs)
 
     def _data_generator(self):
         # Compute the worker info
@@ -33,7 +39,7 @@ class RobomimicDataset(ReplayBuffer):
             demos = [elem.decode("utf-8") for elem in np.array(f["mask/train"][:])]
         else:
             # Extract the validation
-            demos = [elem.decode("utf-8") for elem in np.array(f["mask/train"][:])]
+            demos = [elem.decode("utf-8") for elem in np.array(f["mask/valid"][:])]
 
         # Assign demos to each worker
         demos = sorted(demos)  # Deterministic ordering
@@ -47,6 +53,10 @@ class RobomimicDataset(ReplayBuffer):
             last_obs = utils.unsqueeze(utils.get_from_batch(f["data"][demo]["next_obs"], -1), 0)
             obs = utils.concatenate(obs, last_obs)
             obs = utils.remove_float64(obs)
+
+            # Flip images if needed
+            for k in self.channels_first_keys:
+                obs[k] = np.transpose(obs[k], (0, 3, 1, 2))
 
             dummy_action = np.expand_dims(self.dummy_action, axis=0)
             action = np.concatenate((dummy_action, f["data"][demo]["actions"]), axis=0)
