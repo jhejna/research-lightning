@@ -1,4 +1,4 @@
-alg: IQL
+alg: IDQL
 alg_kwargs:
   tau: 0.005
   target_freq: 1
@@ -14,22 +14,21 @@ optim_kwargs:
 
 network: ActorCriticValuePolicy
 network_kwargs:
-  actor_class: DiagonalGaussianMLPActor
+  actor_class: MLPResNet
   actor_kwargs:
-    log_std_bounds: [-5, 2]
-    dropout: 0.0 # only actor gets dropout sometimes.
-    output_act: ["import", "torch.nn", "Tanh"]
-    state_dependent_log_std: False
-    log_std_tanh: False
-    squash_normal: False
+    act: ["import", "torch.nn", "ReLU"]
+    num_blocks: 2
+    hidden_dim: 128
   critic_class: ContinuousMLPCritic
   critic_kwargs:
     ensemble_size: 2
+    hidden_layers: [256, 256]
+    ortho_init: True
   value_class: MLPValue
   value_kwargs:
     ensemble_size: 1
-  hidden_layers: [256, 256]
-  ortho_init: True
+    hidden_layers: [256, 256]
+    ortho_init: True
 
 eval_env: hopper-medium-replay-v2
 
