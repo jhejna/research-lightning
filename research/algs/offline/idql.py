@@ -86,7 +86,7 @@ class IDQL(OffPolicyAlgorithm):
 
         # First compute the value loss
         with torch.no_grad():
-            target_q = self.target_network.critic(batch["obs"], batch["action"][:, 0])
+            target_q = self.target_network.critic(batch["obs"], batch["action"])
             target_q = torch.min(target_q, dim=0)[0]
         vs = self.network.value(batch["obs"].detach())  # Always detach for value learning
         v_loss = iql_loss(vs, target_q.expand(vs.shape[0], -1), self.expectile).mean()
@@ -100,7 +100,7 @@ class IDQL(OffPolicyAlgorithm):
             next_vs = self.network.value(batch["next_obs"])
             next_v = torch.min(next_vs, dim=0)[0]
             target = batch["reward"] + batch["discount"] * next_v
-        qs = self.network.critic(batch["obs"].detach(), batch["action"][:, 0])
+        qs = self.network.critic(batch["obs"].detach(), batch["action"])
         q_loss = torch.nn.functional.mse_loss(qs, target.expand(qs.shape[0], -1), reduction="none").mean()
 
         self.optim["critic"].zero_grad(set_to_none=True)
@@ -114,11 +114,11 @@ class IDQL(OffPolicyAlgorithm):
             low=0, high=self.scheduler.config.num_train_timesteps, size=(bs,), device=self.device
         ).long()
         noisy_actions = self.scheduler.add_noise(batch["action"], noise, timesteps)
-        action_mask = (~batch["mask"]).float()
+        (~batch["mask"]).float()
 
         noise_pred = self.network.actor(noisy_actions, timesteps, cond=batch["obs"])
         actor_loss = torch.nn.functional.mse_loss(noise_pred, noise, reduction="none").mean(dim=2)
-        
+
         if "mask" in batch:
             mask = (~batch["mask"]).float()
             actor_loss = actor_loss * mask
@@ -166,9 +166,9 @@ class IDQL(OffPolicyAlgorithm):
             # Now we have finished generating the actions, now we need to figure out their weights
             v = self.network.value(obs).mean(dim=0)
             q = torch.min(self.target_network.critic(obs, noisy_actions), dim=0)[0]
-            adv = q - v # Shape (B, self.num_samples)
+            adv = q - v  # Shape (B, self.num_samples)
             expectile_weights = torch.where(adv > 0, self.expectile, 1 - self.expectile)
-            sample_idx = torch.multinomial(expectile_weights / expectile_weights.sum(), 1) # (B, 1)
+            sample_idx = torch.multinomial(expectile_weights / expectile_weights.sum(), 1)  # (B, 1)
             actions = torch.gather(noisy_actions, dim=1, index=sample_idx)
 
         return actions

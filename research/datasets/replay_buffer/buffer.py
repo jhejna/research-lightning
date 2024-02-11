@@ -96,10 +96,8 @@ class ReplayBuffer(torch.utils.data.IterableDataset):
         flattened_buffer_space = utils.flatten_dict(buffer_space)
         if include_keys is not None:
             flattened_buffer_space.update(include_keys)
-            print("FLATTENED BUFFER SPACE", flattened_buffer_space)
         for k in self.exclude_keys:
-            if k in flattened_buffer_space:
-                del flattened_buffer_space[k]
+            storage.remove_key(flattened_buffer_space, k)
         self.buffer_space = utils.nest_dict(flattened_buffer_space)
 
         self.dummy_action = self.action_space.sample()

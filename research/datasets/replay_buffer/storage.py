@@ -10,14 +10,23 @@ import numpy as np
 from research.utils import utils
 
 
+def remove_key(data: Dict, key: str):
+    if key in data:
+        del data[key]
+    elif key.endswith("*"):  # Match everything after
+        for k in list(data.keys()):  # Convert to list to avoid overwritting
+            if k.startswith(key[:-1]):
+                del data[key]
+
+
 def load_data(path: str, exclude_keys: Optional[List[str]]) -> Dict:
     with open(path, "rb") as f:
         data = np.load(f)
         data = {k: data[k] for k in data.keys()}
     # Unnest the data to get everything in the correct format
     for k in exclude_keys:
-        if k in data:
-            del data[k]  # Remove exclude keys
+        remove_key(data, k)
+
     data = utils.nest_dict(data)
     return data
 

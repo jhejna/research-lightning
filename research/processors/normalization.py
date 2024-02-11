@@ -138,7 +138,7 @@ class RunningObservationNormalizer(Processor):
         else:
             raise ValueError("Invalid Input provided")
 
-    def forward(self, batch):
+    def forward(self, batch: Dict) -> Dict:
         # Check if we should update the statistics
         if not self.explicit_update and self.training and "obs" in batch:
             self.update(batch["obs"])
@@ -146,4 +146,90 @@ class RunningObservationNormalizer(Processor):
         for k in ("obs", "next_obs", "init_obs"):
             if k in batch:
                 batch[k] = self.normalize(batch[k])
+        return batch
+
+
+class GaussianActionNormalizer(Processor):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        mean: List[float],
+        std: List[float],
+        clip: Optional[float] = None,
+    ):
+        super().__init__(observation_space, action_space)
+        assert isinstance(action_space, gym.spaces.Box), "Must use box action space."
+        self.mean = np.array(mean, dtype=np.float32)
+        self.std = np.array(std, dtype=np.float32)
+        assert self.low.shape == action_space.low.shape
+        assert self.high.shape == action_space.high.shape
+        self.clip = clip
+
+    @property
+    def action_space(self):
+        if self.clip is None:
+            return gym.spaces.Box(
+                low=(self._action_space.low - self.mean) / self.std,
+                high=(self._action_space.high - self.mean) / self.std,
+            )
+        else:
+            return gym.spaces.Box(
+                low=-self.clip * np.ones_like(self._action_space.low),
+                high=self.clip * np.ones_like(self._action_space.high),
+            )
+
+    def forward(self, batch: Dict):
+        # Process the action to be the correct space
+        action = (batch["action"] - self.mean) / self.std
+        if self.clip is None:
+            action = torch.clamp(action, min=-self.clip, max=self.clip)
+        batch["action"] = action
+        return batch
+
+    def unprocess(self, batch: Dict) -> Dict:
+        # Replace the action to be the correct
+        batch["action"] = batch["action"] * self.std + self.mean
+        return batch
+
+
+class MinMaxActionNormalizer(Processor):
+    def __init__(
+        self,
+        observation_space: gym.Space,
+        action_space: gym.Space,
+        low: List[float],
+        high: List[float],
+        output_low: float = -1,
+        output_high: float = 1,
+    ):
+        super().__init__(observation_space, action_space)
+        assert isinstance(action_space, gym.spaces.Box), "Must use box action space."
+        self.low = np.array(low, dtype=np.float32)
+        self.high = np.array(high, dtype=np.float32)
+        assert self.low.shape == action_space.low.shape
+        assert self.high.shape == action_space.high.shape
+        self.output_high = output_high
+        self.output_low = output_low
+
+    @property
+    def action_space(self):
+        return gym.spaces.Box(
+            low=self.output_low, high=self.output_high, shape=self._action_space.shape, dtype=np.float32
+        )
+
+    def forward(self, batch: Dict):
+        # Process the batch to be the correct shape
+        action = batch["action"]
+        action = (action - self.low) / (self.high - self.low)  # normalize to 0 to 1
+        action = action * (self.output_high - self.output_low) + self.output_low
+        batch["action"] = action
+        return batch
+
+    def unprocess(self, batch: Dict) -> Dict:
+        # Replace the action to be the correct
+        action = batch["action"]
+        action = (action - self.output_low) / (self.output_high - self.output_low)
+        action = action * (self.high - self.low) + self.low
+        batch["action"] = action
         return batch
