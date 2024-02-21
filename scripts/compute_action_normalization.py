@@ -1,8 +1,9 @@
 import argparse
-from research.utils.config import Config
-from research.datasets.replay_buffer.sampling import sample
-import research
+
 import numpy as np
+
+import research
+from research.utils.config import Config
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -14,15 +15,17 @@ if __name__ == "__main__":
     config = config.parse()
     dataset_class = None if config["dataset"] is None else vars(research.datasets)[config["dataset"]]
     dataset_kwargs = config["dataset_kwargs"]
-    assert issubclass(dataset_class, research.datasets.ReplayBuffer), "Must use replay buffer for normalization computation"
-    dataset_kwargs["distributed"] = False # Ensure that we load all of the data.
+    assert issubclass(
+        dataset_class, research.datasets.ReplayBuffer
+    ), "Must use replay buffer for normalization computation"
+    dataset_kwargs["distributed"] = False  # Ensure that we load all of the data.
     observation_space, action_space = config.get_spaces()
 
     # Exclude all observations for faster loading
     exclude_keys = list(dataset_kwargs.get("exclude_keys", []))
-    exclude_keys.extend(["obs.*", "reward", "discount"]) # Cannot remove done!
+    exclude_keys.extend(["obs.*", "reward", "discount"])  # Cannot remove done!
     dataset_kwargs["exclude_keys"] = exclude_keys
-    
+
     # Create the dataset, exclude everything but actions so we don't load it
     dataset = dataset_class(observation_space, action_space, **dataset_kwargs)
 
@@ -58,7 +61,3 @@ if __name__ == "__main__":
 
     print("Clipped Low: ", clipped_low)
     print("Clipped High: ", clipped_high)
-
-    
-
-

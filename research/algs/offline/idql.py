@@ -108,16 +108,17 @@ class IDQL(OffPolicyAlgorithm):
         self.optim["critic"].step()
 
         # Update the actor, just with BC. We will sample from it later using re-weighting.
-        bs = batch["action"].shape[0]
+        B = batch["action"].shape[0]
         noise = torch.randn_like(batch["action"])
         timesteps = torch.randint(
-            low=0, high=self.scheduler.config.num_train_timesteps, size=(bs,), device=self.device
+            low=0, high=self.noise_scheduler.config.num_train_timesteps, size=(B,), device=self.device
         ).long()
-        noisy_actions = self.scheduler.add_noise(batch["action"], noise, timesteps)
-        (~batch["mask"]).float()
+        noisy_actions = self.noise_scheduler.add_noise(batch["action"], noise, timesteps)
 
         noise_pred = self.network.actor(noisy_actions, timesteps, cond=batch["obs"])
-        actor_loss = torch.nn.functional.mse_loss(noise_pred, noise, reduction="none").mean(dim=2)
+        actor_loss = torch.nn.functional.mse_loss(noise_pred, noise, reduction="none").sum(
+            dim=-1
+        )  # Sum over action Dim
 
         if "mask" in batch:
             mask = (~batch["mask"]).float()
@@ -152,14 +153,15 @@ class IDQL(OffPolicyAlgorithm):
         with torch.no_grad():
             obs = self.network.encoder(batch["obs"])
             B, D = obs.shape
-            obs = obs.unsqueeze(1)
-            obs = obs.expand(B, self.num_samples, D)
+            obs = obs.unsqueeze(1).expand(B, self.num_samples, D)
 
             noisy_actions = torch.randn(B, self.num_samples, self.processor.action_space.shape[0], device=self.device)
-            self.scheduler.set_timesteps(self.num_inference_steps)
-            for timestep in self.scheduler.timesteps:
-                noise_pred = self.network.actor(noisy_actions, timestep.unsqueeze(0).to(self.device), cond=obs)
-                noisy_actions = self.scheduler.step(
+            self.noise_scheduler.set_timesteps(self.num_inference_steps)
+            for timestep in self.noise_scheduler.timesteps:
+                noise_pred = self.network.actor(
+                    noisy_actions, timestep.to(self.device).expand(B, self.num_samples), cond=obs
+                )
+                noisy_actions = self.noise_scheduler.step(
                     model_output=noise_pred, timestep=timestep, sample=noisy_actions
                 ).prev_sample
 
@@ -169,7 +171,7 @@ class IDQL(OffPolicyAlgorithm):
             adv = q - v  # Shape (B, self.num_samples)
             expectile_weights = torch.where(adv > 0, self.expectile, 1 - self.expectile)
             sample_idx = torch.multinomial(expectile_weights / expectile_weights.sum(), 1)  # (B, 1)
-            actions = torch.gather(noisy_actions, dim=1, index=sample_idx)
+            actions = noisy_actions[torch.arange(B), sample_idx.squeeze(-1)]
 
         return actions
 

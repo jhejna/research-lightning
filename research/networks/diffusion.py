@@ -15,16 +15,15 @@ import torch.nn as nn
 class SinusoidalPosEmb(nn.Module):
     def __init__(self, dim):
         super().__init__()
-        self.dim = dim
+        half_dim = dim // 2
+        emb = math.log(10000) / (half_dim - 1)
+        emb = torch.exp(torch.arange(half_dim) * -emb)
+        self.register_buffer("emb", emb)
 
     def forward(self, x):
-        device = x.device
-        half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
-        emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
-        return emb
+        # X is shape (Batch dims,) Emb is shape (D)
+        pos_emb = x.unsqueeze(-1) * self.emb
+        return torch.cat((pos_emb.sin(), pos_emb.cos()), dim=-1)
 
 
 class Downsample1d(nn.Module):
@@ -300,6 +299,7 @@ class MLPResNet(nn.Module):
         use_layer_norm: bool = True,
         act=nn.Mish,
     ):
+        super().__init__()
         self.time_net = nn.Sequential(
             SinusoidalPosEmb(time_dim), nn.Linear(time_dim, time_dim), act(), nn.Linear(time_dim, time_dim)
         )
