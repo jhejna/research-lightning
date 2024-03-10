@@ -1,0 +1,47 @@
+alg: BehaviorCloning
+alg_kwargs:
+  # Configure offline steps. These aren't needed, but good to set.
+  offline_steps: -1
+  random_steps: 0
+
+optim: Adam
+optim_kwargs:
+  lr: 0.0003
+
+network: ActorPolicy
+network_kwargs:
+  actor_class: ContinuousMLPActor
+  hidden_layers: [256, 256, 256]
+  ortho_init: True
+
+# Example config using Robomimic.
+eval_env: FetchPickAndPlace-v1
+
+dataset: WGCSLDataset
+dataset_kwargs:
+  # path: path/to/wgcsl/dataset
+  path: [../datasets/offline_goal_conditioned_data/expert/FetchPick/buffer.pkl, ../datasets/offline_goal_conditioned_data/random/FetchPick/buffer.pkl]
+  percents: [0.9, 0.1]
+  sample_fn: sample_her
+  sample_kwargs:
+    sample_by_timesteps: False
+    batch_size: 256
+    relabel_fraction: 1.0
+    strategy: future
+
+schedule: null
+processor: Concatenate # Concatenates all goal keys together
+
+trainer_kwargs: # Arguments given to Algorithm.train
+  total_steps: 1000000 # The total number of steps to train
+  log_freq: 250 # How often to log values
+  profile_freq: 100
+  eval_freq: 10000 # How often to run evals
+  eval_fn: eval_policy
+  eval_kwargs:
+    num_ep: 10 # Number of enviornment episodes to run for evaluation, or -1 if none should be run.
+  loss_metric: reward # The validation metric that determines when to save the "best_checkpoint"
+  max_validation_steps: 25 # Will run forever otherwise due to continuous replay buffer iter.
+  train_dataloader_kwargs:
+    num_workers: 0 # Number of dataloader workers.
+    batch_size: null

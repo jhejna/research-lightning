@@ -9,6 +9,11 @@ from .base import EmptyEnv
 __all__ = ["EmptyEnv"]
 
 try:
+    import gym_robotics
+except ImportError:
+    print("[research] skipping gym robotics, package not found.")
+
+try:
     import d4rl
 except ImportError:
     print("[research] skipping d4rl, package not found.")

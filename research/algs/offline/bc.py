@@ -23,9 +23,6 @@ class BehaviorCloning(OffPolicyAlgorithm):
         self.grad_norm_clip = grad_norm_clip
 
     def setup_optimizers(self) -> None:
-        """
-        Decay support added explicitly. Maybe move this to base implementation?
-        """
         # create optim groups. Any parameters that is 2D or higher will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
         groups = utils.create_optim_groups(self.network.parameters(), self.optim_kwargs)
@@ -61,7 +58,7 @@ class BehaviorCloning(OffPolicyAlgorithm):
         Returns a dictionary of training metrics.
         """
         self.optim["network"].zero_grad(set_to_none=True)
-        loss = self._compute_loss()
+        loss = self._compute_loss(batch)
         loss.backward()
         if self.grad_norm_clip is not None:
             torch.nn.utils.clip_grad_norm_(self.network.parameters(), self.grad_norm_clip)
